@@ -89,12 +89,14 @@ export async function GET(request: NextRequest) {
       const end = start + pageSize - 1
       worklogIds = (await redis.lrange(indexKey, start, end)) as string[]
     } else {
-      const windowSize = 250 // Fetch 250 IDs at a time (increased from 100)
-      const maxWindows = 10 // Max 2500 IDs checked (increased from 1000)
-      const filteredIds: string[] = []
+      // Window-based filtering with proper pagination
+      const windowSize = 250
+      const maxWindows = 10
+      const allMatchedIds: string[] = []
       let currentWindow = 0
 
-      while (filteredIds.length < pageSize && currentWindow < maxWindows) {
+      // Collect ALL matching IDs first, then paginate
+      while (currentWindow < maxWindows) {
         const windowStart = currentWindow * windowSize
         const windowEnd = windowStart + windowSize - 1
 
@@ -117,15 +119,19 @@ export async function GET(request: NextRequest) {
           return true
         })
 
-        filteredIds.push(...filtered.map((w) => w.id))
+        allMatchedIds.push(...filtered.map((w) => w.id))
 
+        // If we got fewer IDs than window size, we've reached the end
         if (windowIds.length < windowSize) break
 
         currentWindow++
       }
 
-      worklogIds = filteredIds.slice(0, pageSize)
-      totalCount = filteredIds.length
+      // Apply pagination after collecting all matched IDs
+      totalCount = allMatchedIds.length
+      const pageStart = (page - 1) * pageSize
+      const pageEnd = pageStart + pageSize
+      worklogIds = allMatchedIds.slice(pageStart, pageEnd)
     }
 
     if (!Array.isArray(worklogIds) || worklogIds.length === 0) {
