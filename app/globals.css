@@ -3,9 +3,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@theme inline {
-  --font-sans: 'Geist', 'Geist Fallback';
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+@theme {
+  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
   --color-background: oklch(1 0 0);
   --color-foreground: oklch(0.145 0 0);
   --color-card: oklch(1 0 0);
@@ -38,17 +42,14 @@
   --color-sidebar-accent-foreground: oklch(0.205 0 0);
   --color-sidebar-border: oklch(0.922 0 0);
   --color-sidebar-ring: oklch(0.708 0 0);
-  --radius-sm: 0.225rem;
-  --radius-md: 0.425rem;
-  --radius-lg: 0.625rem;
-  --radius-xl: 1.025rem;
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    border-color: oklch(0.922 0 0);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: oklch(1 0 0);
+    color: oklch(0.145 0 0);
   }
 }
