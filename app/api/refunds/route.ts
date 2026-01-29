@@ -122,6 +122,7 @@ export async function GET(request: NextRequest) {
     const toDate = searchParams.get("to")
     const submitter = searchParams.get("submitter")
     const companyName = searchParams.get("companyName")
+    const vehicleNumber = searchParams.get("vehicleNumber")
     const page = Number.parseInt(searchParams.get("page") || "1")
     const pageSize = Number.parseInt(searchParams.get("pageSize") || "20")
     const status = searchParams.get("status")
@@ -129,8 +130,8 @@ export async function GET(request: NextRequest) {
     let refundIds: string[] = []
     let totalCount = 0
 
-    if (fromDate || toDate || submitter || companyName) {
-      const result = await getRefundIdsWithFilters(status, fromDate, toDate, submitter, companyName, page, pageSize)
+    if (fromDate || toDate || submitter || companyName || vehicleNumber) {
+      const result = await getRefundIdsWithFilters(status, fromDate, toDate, submitter, companyName, page, pageSize, vehicleNumber || undefined)
       refundIds = result.ids
       totalCount = result.totalCount
     } else {
