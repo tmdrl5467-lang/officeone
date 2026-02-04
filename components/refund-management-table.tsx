@@ -116,6 +116,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
       if (filterStatus && filterStatus !== "all") params.set("status", filterStatus)
+      if (vehicleSearch) params.set("vehicleNumber", vehicleSearch)
       params.set("page", currentPage.toString())
       params.set("pageSize", pageSize.toString())
 
@@ -149,7 +150,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     } finally {
       setLoading(false)
     }
-  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
+  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, vehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
 
   const applyFilters = () => {
     setCurrentPage(1)
@@ -614,7 +615,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
   useEffect(() => {
     fetchRefunds()
-  }, [currentPage, filterKey, fetchRefunds])
+  }, [currentPage, filterKey, vehicleSearch, fetchRefunds])
 
   const getStatusBadge = (status: string, acknowledgedAt?: string, approvedAt?: string, isDuplicate?: boolean) => {
     const statusBadge = (() => {
@@ -722,14 +723,8 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  // The actual filtering by vehicleSearch is still client-side for immediate feedback
-  const filteredRefunds = vehicleSearch
-    ? refunds.filter((r) => {
-        const vn = (r.vehicleNumber || "").replace(/[\s-]/g, "").toLowerCase()
-        const search = vehicleSearch.replace(/[\s-]/g, "").toLowerCase()
-        return vn.includes(search)
-      })
-    : refunds
+  // Server-side filtering - no client-side filter needed
+  const filteredRefunds = refunds
 
   if (loading) {
     return (
@@ -788,7 +783,10 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
               <Input
                 placeholder="차량번호 검색"
                 value={vehicleSearch}
-                onChange={(e) => setVehicleSearch(e.target.value)}
+                onChange={(e) => {
+                  setVehicleSearch(e.target.value)
+                  setCurrentPage(1)
+                }}
                 className="w-48 pr-8"
               />
               {vehicleSearch && (

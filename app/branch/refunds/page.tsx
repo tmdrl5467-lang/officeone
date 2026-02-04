@@ -114,6 +114,14 @@ export default function BranchRefundsPage() {
   const [filterVehicleNumber, setFilterVehicleNumber] = useState("")
   const [debouncedVehicleNumber, setDebouncedVehicleNumber] = useState("")
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedVehicleNumber(filterVehicleNumber)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [filterVehicleNumber])
+
   const fetchRefunds = async () => {
     try {
       setLoading(true)

@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     let successCount = 0
 
     for (const worklog of filteredWorklogs) {
-      const allImageUrls: string[] = []
+      const allImageUrls: { url: string; type: string }[] = []
 
       // Collect uploaded photos
       if (worklog.photoUrls && worklog.photoUrls.length > 0) {
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
       const fullFolderPath = `${branchNameSlug}/${worklogFolderName}`
 
       for (let i = 0; i < allImageUrls.length; i++) {
-        const { url, type } = allImageUrls[i] as any
+        const { url, type } = allImageUrls[i]
 
         try {
           const response = await fetch(url)

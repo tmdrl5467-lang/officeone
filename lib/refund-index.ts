@@ -84,6 +84,7 @@ export async function getRefundIdsWithFilters(
   companyName?: string,
   page = 1,
   pageSize = 20,
+  vehicleNumber?: string,
 ): Promise<{ ids: string[]; totalCount: number; hasMore: boolean }> {
   const pageStart = (page - 1) * pageSize
   const pageEnd = pageStart + pageSize
@@ -134,6 +135,13 @@ export async function getRefundIdsWithFilters(
       if (companyName) {
         const company = (refund.companyName || refund.insuranceCompany || "").toLowerCase()
         if (!company.includes(companyName.toLowerCase())) return false
+      }
+
+      // Vehicle number filter
+      if (vehicleNumber) {
+        const vn = (refund.vehicleNumber || "").replace(/[\s-]/g, "").toLowerCase()
+        const search = vehicleNumber.replace(/[\s-]/g, "").toLowerCase()
+        if (!vn.includes(search)) return false
       }
 
       return true
