@@ -48,16 +48,40 @@ export async function GET(request: NextRequest) {
     // Get all worklog IDs
     const worklogIds = (await redis.lrange("worklogs:index", 0, -1)) as string[]
 
-    if (worklogIds.length === 0) {
+    if (!worklogIds || worklogIds.length === 0) {
       return NextResponse.json({ error: "근무일지 데이터가 없습니다." }, { status: 404 })
     }
 
-    // Fetch all worklogs
+    // Fetch all worklogs using pipeline in batches to avoid rate limit
     const worklogs: WorkLog[] = []
-    for (const id of worklogIds) {
-      const worklogData = await redis.get<WorkLog>(`worklog:${id}`)
-      if (worklogData) {
-        worklogs.push(worklogData)
+    const BATCH_SIZE = 50
+    
+    for (let i = 0; i < worklogIds.length; i += BATCH_SIZE) {
+      const batch = worklogIds.slice(i, i + BATCH_SIZE)
+      const pipeline = redis.pipeline()
+      
+      for (const id of batch) {
+        pipeline.get(`worklog:${id}`)
+      }
+      
+      try {
+        const results = await pipeline.exec()
+        
+        if (results && Array.isArray(results)) {
+          for (const result of results) {
+            if (result && typeof result === "object" && "id" in result) {
+              worklogs.push(result as WorkLog)
+            }
+          }
+        }
+      } catch (pipelineError) {
+        console.error("[v0] Pipeline batch error:", pipelineError)
+        // Continue with next batch instead of failing completely
+      }
+      
+      // Small delay between batches to avoid rate limit
+      if (i + BATCH_SIZE < worklogIds.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
     }
 
@@ -93,15 +117,11 @@ export async function GET(request: NextRequest) {
 
     // Count total images
     let totalImageCount = 0
-    console.log("[v0] Starting image count loop, filteredWorklogs count:", filteredWorklogs.length)
-    for (let idx = 0; idx < filteredWorklogs.length; idx++) {
-      const worklog = filteredWorklogs[idx]
-      console.log(`[v0] Worklog ${idx}: id=${worklog?.id}, photoUrls type=${typeof worklog?.photoUrls}, isArray=${Array.isArray(worklog?.photoUrls)}`)
+    for (const worklog of filteredWorklogs) {
       const photoCount = Array.isArray(worklog?.photoUrls) ? worklog.photoUrls.length : 0
       const pasteCount = Array.isArray(worklog?.worklogPasteImageUrls) ? worklog.worklogPasteImageUrls.length : 0
       totalImageCount += photoCount + pasteCount
     }
-    console.log("[v0] Total image count:", totalImageCount)
 
     if (totalImageCount > MAX_IMAGES) {
       return NextResponse.json(
