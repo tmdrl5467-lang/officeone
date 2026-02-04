@@ -118,12 +118,12 @@ export async function GET(request: NextRequest) {
       const allImageUrls: { url: string; type: string }[] = []
 
       // Collect uploaded photos
-      if (worklog.photoUrls && worklog.photoUrls.length > 0) {
+      if (worklog.photoUrls && Array.isArray(worklog.photoUrls) && worklog.photoUrls.length > 0) {
         allImageUrls.push(...worklog.photoUrls.map((url) => ({ url, type: "photo" })))
       }
 
       // Collect paste images
-      if (worklog.worklogPasteImageUrls && worklog.worklogPasteImageUrls.length > 0) {
+      if (worklog.worklogPasteImageUrls && Array.isArray(worklog.worklogPasteImageUrls) && worklog.worklogPasteImageUrls.length > 0) {
         allImageUrls.push(...worklog.worklogPasteImageUrls.map((url) => ({ url, type: "paste" })))
       }
 
