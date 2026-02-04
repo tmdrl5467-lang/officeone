@@ -93,11 +93,15 @@ export async function GET(request: NextRequest) {
 
     // Count total images
     let totalImageCount = 0
-    for (const worklog of filteredWorklogs) {
-      const photoCount = Array.isArray(worklog.photoUrls) ? worklog.photoUrls.length : 0
-      const pasteCount = Array.isArray(worklog.worklogPasteImageUrls) ? worklog.worklogPasteImageUrls.length : 0
+    console.log("[v0] Starting image count loop, filteredWorklogs count:", filteredWorklogs.length)
+    for (let idx = 0; idx < filteredWorklogs.length; idx++) {
+      const worklog = filteredWorklogs[idx]
+      console.log(`[v0] Worklog ${idx}: id=${worklog?.id}, photoUrls type=${typeof worklog?.photoUrls}, isArray=${Array.isArray(worklog?.photoUrls)}`)
+      const photoCount = Array.isArray(worklog?.photoUrls) ? worklog.photoUrls.length : 0
+      const pasteCount = Array.isArray(worklog?.worklogPasteImageUrls) ? worklog.worklogPasteImageUrls.length : 0
       totalImageCount += photoCount + pasteCount
     }
+    console.log("[v0] Total image count:", totalImageCount)
 
     if (totalImageCount > MAX_IMAGES) {
       return NextResponse.json(
