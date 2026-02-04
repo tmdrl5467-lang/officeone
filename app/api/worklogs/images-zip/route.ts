@@ -94,7 +94,9 @@ export async function GET(request: NextRequest) {
     // Count total images
     let totalImageCount = 0
     for (const worklog of filteredWorklogs) {
-      totalImageCount += (worklog.photoUrls?.length || 0) + (worklog.worklogPasteImageUrls?.length || 0)
+      const photoCount = Array.isArray(worklog.photoUrls) ? worklog.photoUrls.length : 0
+      const pasteCount = Array.isArray(worklog.worklogPasteImageUrls) ? worklog.worklogPasteImageUrls.length : 0
+      totalImageCount += photoCount + pasteCount
     }
 
     if (totalImageCount > MAX_IMAGES) {
