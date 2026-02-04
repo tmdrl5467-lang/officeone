@@ -103,8 +103,8 @@ export async function GET(request: NextRequest) {
     console.log(`[v0] Found ${filteredWorklogs.length} worklogs (filtered from ${worklogs.length})`)
 
     // Enforce limit to prevent excessive load
-    const MAX_WORKLOGS = 200
-    const MAX_IMAGES = 1000
+    const MAX_WORKLOGS = 500
+    const MAX_IMAGES = 2000
 
     if (filteredWorklogs.length > MAX_WORKLOGS) {
       return NextResponse.json(
