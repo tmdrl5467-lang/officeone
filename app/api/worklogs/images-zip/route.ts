@@ -155,9 +155,8 @@ export async function GET(request: NextRequest) {
 
       if (allImageUrls.length === 0) continue
 
-      const branchNameSlug = sanitizeBranchName(worklog.branchId)
-      const worklogFolderName = `worklog_${worklog.date}_${worklog.authorName}_${worklog.id.slice(-8)}`
-      const fullFolderPath = `${branchNameSlug}/${worklogFolderName}`
+      const authorName = (worklog.authorName || "unknown").replace(/[/\\:*?"<>|]/g, "").trim()
+      const worklogDate = worklog.date || "unknown"
 
       for (let i = 0; i < allImageUrls.length; i++) {
         const { url, type } = allImageUrls[i]
@@ -176,11 +175,11 @@ export async function GET(request: NextRequest) {
           const urlParts = url.split(".")
           const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
 
-          // File naming: photo_1.jpg or paste_1.png
+          // Flat file naming: 2025-01-26_홍길동_photo_1.jpg
           const prefix = type === "paste" ? "paste" : "photo"
-          const fileName = `${prefix}_${i + 1}.${ext}`
+          const fileName = `${worklogDate}_${authorName}_${prefix}_${i + 1}.${ext}`
 
-          zip.file(`${fullFolderPath}/${fileName}`, buffer)
+          zip.file(fileName, buffer)
           successCount++
         } catch (error) {
           console.error(`[v0] Failed to fetch ${url}:`, error)
