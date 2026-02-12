@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Label } from "./ui/label"
@@ -57,6 +57,17 @@ export function SingleRefundForm() {
     existingRefundId: string
     message: string
   }>({ show: false, existingRefundId: "", message: "" })
+  const [suggestions, setSuggestions] = useState<{ companyNames: string[]; dealerNames: string[] }>({
+    companyNames: [],
+    dealerNames: [],
+  })
+
+  useEffect(() => {
+    fetch("/api/refunds/suggestions")
+      .then((res) => res.json())
+      .then((data) => setSuggestions(data))
+      .catch(() => {})
+  }, [])
 
   const getTodayDate = () => {
     const today = new Date()
@@ -342,7 +353,14 @@ export function SingleRefundForm() {
               placeholder="상사명을 입력하세요"
               required
               disabled={loading}
+              list="companyName-list"
+              autoComplete="off"
             />
+            <datalist id="companyName-list">
+              {suggestions.companyNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </div>
 
           <div className="space-y-2">
@@ -357,7 +375,14 @@ export function SingleRefundForm() {
               placeholder="홍길동"
               required
               disabled={loading}
+              list="dealerName-list"
+              autoComplete="off"
             />
+            <datalist id="dealerName-list">
+              {suggestions.dealerNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </div>
 
           <div className="space-y-2">

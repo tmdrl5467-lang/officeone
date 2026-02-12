@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Label } from "./ui/label"
@@ -58,6 +58,17 @@ export function BatchRefundForm() {
     duplicates: { index: number; vehicleNumber: string; existingRefundId: string }[]
     message: string
   }>({ show: false, duplicates: [], message: "" })
+  const [suggestions, setSuggestions] = useState<{ companyNames: string[]; dealerNames: string[] }>({
+    companyNames: [],
+    dealerNames: [],
+  })
+
+  useEffect(() => {
+    fetch("/api/refunds/suggestions")
+      .then((res) => res.json())
+      .then((data) => setSuggestions(data))
+      .catch(() => {})
+  }, [])
 
   const getTodayDate = () => {
     const today = new Date()
@@ -342,7 +353,14 @@ export function BatchRefundForm() {
                   placeholder="상사명을 입력하세요"
                   required
                   disabled={loading}
+                  list="batch-companyName-list"
+                  autoComplete="off"
                 />
+                <datalist id="batch-companyName-list">
+                  {suggestions.companyNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -352,7 +370,14 @@ export function BatchRefundForm() {
                   onChange={(e) => setHeader({ ...header, dealerName: e.target.value })}
                   placeholder="홍길동"
                   disabled={loading}
+                  list="batch-dealerName-list"
+                  autoComplete="off"
                 />
+                <datalist id="batch-dealerName-list">
+                  {suggestions.dealerNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
