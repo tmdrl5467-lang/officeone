@@ -62,6 +62,8 @@ export function BatchRefundForm() {
     companyNames: [],
     dealerNames: [],
   })
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [submitCount, setSubmitCount] = useState(0)
 
   useEffect(() => {
     fetch("/api/refunds/suggestions")
@@ -282,13 +284,31 @@ export function BatchRefundForm() {
       }
 
       const data = await res.json()
-      alert(`${data.createdCount}건의 환불 청구가 제출되었습니다.`)
-      router.push("/dashboard?success=batch")
+      setSubmitCount(data.createdCount)
+      setSubmitSuccess(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.")
     } finally {
       setLoading(false)
     }
+  }
+
+  const resetFormForContinue = () => {
+    setLineItems([
+      {
+        id: crypto.randomUUID(),
+        refundDate: getTodayDate(),
+        vehicleNumber: "",
+        vin: "",
+        claimAmount: 0,
+        refundReason: "",
+        receiptDate: "",
+        photos: [],
+      },
+    ])
+    setError("")
+    setSubmitSuccess(false)
+    setSubmitCount(0)
   }
 
   const handleForceCreate = async () => {
@@ -652,6 +672,27 @@ export function BatchRefundForm() {
           </Button>
         </div>
       </form>
+
+      <Dialog open={submitSuccess} onOpenChange={(open) => !open && setSubmitSuccess(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>일괄 환불 청구 완료</DialogTitle>
+            <DialogDescription>{submitCount}건의 환불 청구가 성공적으로 제출되었습니다.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.push("/dashboard")}
+            >
+              대시보드로 이동
+            </Button>
+            <Button type="button" onClick={resetFormForContinue}>
+              추가 입력
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate Warning Dialog */}
       <Dialog
