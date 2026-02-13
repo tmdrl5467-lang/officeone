@@ -622,7 +622,7 @@ export function BatchRefundForm() {
                     </Select>
                   </div>
 
-                  {(header.refundMethod === "card" || header.refundMethod === "offset") && (
+                  {(header.refundMethod === "card" || header.refundMethod === "offset" || header.refundMethod === "account") && (
                     <div className="space-y-2">
                       <Label>
                         성능완료일 <span className="text-destructive">*</span>
