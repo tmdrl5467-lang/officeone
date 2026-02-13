@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Label } from "./ui/label"
@@ -40,6 +40,10 @@ const BANKS = [
   "카카오뱅크",
   "토스뱅크",
   "케이뱅크",
+  "경남은행",
+  "광주은행",
+  "새마을금고",
+  "우체국",
   "기타",
 ]
 
@@ -57,6 +61,18 @@ export function SingleRefundForm() {
     existingRefundId: string
     message: string
   }>({ show: false, existingRefundId: "", message: "" })
+  const [suggestions, setSuggestions] = useState<{ companyNames: string[]; dealerNames: string[] }>({
+    companyNames: [],
+    dealerNames: [],
+  })
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/refunds/suggestions")
+      .then((res) => res.json())
+      .then((data) => setSuggestions(data))
+      .catch(() => {})
+  }, [])
 
   const getTodayDate = () => {
     const today = new Date()
@@ -232,12 +248,37 @@ export function SingleRefundForm() {
         throw new Error(errorMessage)
       }
 
-      router.push("/dashboard?success=single")
+      setSubmitSuccess(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.")
     } finally {
       setLoading(false)
     }
+  }
+
+  const resetFormForContinue = () => {
+    setFormData({
+      refundDate: getTodayDate(),
+      vehicleNumber: "",
+      vin: "",
+      insuranceProvider: formData.insuranceProvider,
+      insuranceProviderEtc: formData.insuranceProviderEtc,
+      companyName: formData.companyName,
+      dealerName: formData.dealerName,
+      managerName: formData.managerName,
+      refundMethod: formData.refundMethod,
+      claimAmount: "",
+      refundReason: "",
+      customReason: "",
+      bankName: formData.bankName,
+      accountNumber: formData.accountNumber,
+      accountHolder: formData.accountHolder,
+      receiptDate: "",
+      offsetReason: "",
+    })
+    setPhotos([])
+    setError("")
+    setSubmitSuccess(false)
   }
 
   const handleForceCreate = async () => {
@@ -342,7 +383,14 @@ export function SingleRefundForm() {
               placeholder="상사명을 입력하세요"
               required
               disabled={loading}
+              list="companyName-list"
+              autoComplete="off"
             />
+            <datalist id="companyName-list">
+              {suggestions.companyNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </div>
 
           <div className="space-y-2">
@@ -357,7 +405,14 @@ export function SingleRefundForm() {
               placeholder="홍길동"
               required
               disabled={loading}
+              list="dealerName-list"
+              autoComplete="off"
             />
+            <datalist id="dealerName-list">
+              {suggestions.dealerNames.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </div>
 
           <div className="space-y-2">
@@ -593,6 +648,27 @@ export function SingleRefundForm() {
           </Button>
         </div>
       </form>
+
+      <Dialog open={submitSuccess} onOpenChange={(open) => !open && setSubmitSuccess(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>환불 청구 완료</DialogTitle>
+            <DialogDescription>환불 청구가 성공적으로 제출되었습니다.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.push("/dashboard")}
+            >
+              대시보드로 이동
+            </Button>
+            <Button type="button" onClick={resetFormForContinue}>
+              추가 입력
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={calculatorOpen} onOpenChange={setCalculatorOpen}>
         <DialogContent className="sm:max-w-md">

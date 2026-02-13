@@ -48,16 +48,40 @@ export async function GET(request: NextRequest) {
     // Get all worklog IDs
     const worklogIds = (await redis.lrange("worklogs:index", 0, -1)) as string[]
 
-    if (worklogIds.length === 0) {
+    if (!worklogIds || worklogIds.length === 0) {
       return NextResponse.json({ error: "근무일지 데이터가 없습니다." }, { status: 404 })
     }
 
-    // Fetch all worklogs
+    // Fetch all worklogs using pipeline in batches to avoid rate limit
     const worklogs: WorkLog[] = []
-    for (const id of worklogIds) {
-      const worklogData = await redis.get<WorkLog>(`worklog:${id}`)
-      if (worklogData) {
-        worklogs.push(worklogData)
+    const BATCH_SIZE = 50
+    
+    for (let i = 0; i < worklogIds.length; i += BATCH_SIZE) {
+      const batch = worklogIds.slice(i, i + BATCH_SIZE)
+      const pipeline = redis.pipeline()
+      
+      for (const id of batch) {
+        pipeline.get(`worklog:${id}`)
+      }
+      
+      try {
+        const results = await pipeline.exec()
+        
+        if (results && Array.isArray(results)) {
+          for (const result of results) {
+            if (result && typeof result === "object" && "id" in result) {
+              worklogs.push(result as WorkLog)
+            }
+          }
+        }
+      } catch (pipelineError) {
+        console.error("[v0] Pipeline batch error:", pipelineError)
+        // Continue with next batch instead of failing completely
+      }
+      
+      // Small delay between batches to avoid rate limit
+      if (i + BATCH_SIZE < worklogIds.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
     }
 
@@ -79,8 +103,8 @@ export async function GET(request: NextRequest) {
     console.log(`[v0] Found ${filteredWorklogs.length} worklogs (filtered from ${worklogs.length})`)
 
     // Enforce limit to prevent excessive load
-    const MAX_WORKLOGS = 200
-    const MAX_IMAGES = 1000
+    const MAX_WORKLOGS = 500
+    const MAX_IMAGES = 2000
 
     if (filteredWorklogs.length > MAX_WORKLOGS) {
       return NextResponse.json(
@@ -94,7 +118,9 @@ export async function GET(request: NextRequest) {
     // Count total images
     let totalImageCount = 0
     for (const worklog of filteredWorklogs) {
-      totalImageCount += (worklog.photoUrls?.length || 0) + (worklog.worklogPasteImageUrls?.length || 0)
+      const photoCount = Array.isArray(worklog?.photoUrls) ? worklog.photoUrls.length : 0
+      const pasteCount = Array.isArray(worklog?.worklogPasteImageUrls) ? worklog.worklogPasteImageUrls.length : 0
+      totalImageCount += photoCount + pasteCount
     }
 
     if (totalImageCount > MAX_IMAGES) {
@@ -118,20 +144,19 @@ export async function GET(request: NextRequest) {
       const allImageUrls: { url: string; type: string }[] = []
 
       // Collect uploaded photos
-      if (worklog.photoUrls && worklog.photoUrls.length > 0) {
+      if (worklog.photoUrls && Array.isArray(worklog.photoUrls) && worklog.photoUrls.length > 0) {
         allImageUrls.push(...worklog.photoUrls.map((url) => ({ url, type: "photo" })))
       }
 
       // Collect paste images
-      if (worklog.worklogPasteImageUrls && worklog.worklogPasteImageUrls.length > 0) {
+      if (worklog.worklogPasteImageUrls && Array.isArray(worklog.worklogPasteImageUrls) && worklog.worklogPasteImageUrls.length > 0) {
         allImageUrls.push(...worklog.worklogPasteImageUrls.map((url) => ({ url, type: "paste" })))
       }
 
       if (allImageUrls.length === 0) continue
 
-      const branchNameSlug = sanitizeBranchName(worklog.branchId)
-      const worklogFolderName = `worklog_${worklog.date}_${worklog.authorName}_${worklog.id.slice(-8)}`
-      const fullFolderPath = `${branchNameSlug}/${worklogFolderName}`
+      const authorName = (worklog.authorName || "unknown").replace(/[/\\:*?"<>|]/g, "").trim()
+      const worklogDate = worklog.date || "unknown"
 
       for (let i = 0; i < allImageUrls.length; i++) {
         const { url, type } = allImageUrls[i]
@@ -150,11 +175,11 @@ export async function GET(request: NextRequest) {
           const urlParts = url.split(".")
           const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
 
-          // File naming: photo_1.jpg or paste_1.png
+          // Flat file naming: 2025-01-26_홍길동_photo_1.jpg
           const prefix = type === "paste" ? "paste" : "photo"
-          const fileName = `${prefix}_${i + 1}.${ext}`
+          const fileName = `${worklogDate}_${authorName}_${prefix}_${i + 1}.${ext}`
 
-          zip.file(`${fullFolderPath}/${fileName}`, buffer)
+          zip.file(fileName, buffer)
           successCount++
         } catch (error) {
           console.error(`[v0] Failed to fetch ${url}:`, error)

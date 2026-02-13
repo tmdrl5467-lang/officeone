@@ -723,6 +723,8 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
+  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || vehicleSearch
+
   // Server-side filtering - no client-side filter needed
   const filteredRefunds = refunds
 
@@ -756,16 +758,16 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
             필터 {showFilters ? "숨기기" : "표시"}
           </Button>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button onClick={handleExportExcel} disabled={exportLoading} variant="outline" size="sm">
-              {exportLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="mr-2 h-4 w-4" />
-              )}
-              엑셀 다운로드
-            </Button>
+<Button onClick={handleExportExcel} disabled={exportLoading} variant="outline" size="sm" title={hasActiveFilters ? "현재 필터 조건에 해당하는 데이터만 다운로드됩니다" : "전체 데이터를 다운로드합니다"}>
+  {exportLoading ? (
+  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  ) : (
+  <FileSpreadsheet className="mr-2 h-4 w-4" />
+  )}
+엑셀 {hasActiveFilters ? "(필터 적용)" : "(전체)"}
+  </Button>
             {user?.role === "COMMANDER" && (
-              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm">
+              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm" title={hasActiveFilters ? "현재 필터 조건에 해당하는 사진만 다운로드됩니다" : "전체 사진을 다운로드합니다"}>
                 {zipLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

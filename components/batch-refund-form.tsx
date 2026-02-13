@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Label } from "./ui/label"
@@ -45,6 +45,10 @@ const BANKS = [
   "카카오뱅크",
   "토스뱅크",
   "케이뱅크",
+  "경남은행",
+  "광주은행",
+  "새마을금고",
+  "우체국",
   "기타",
 ]
 
@@ -58,6 +62,19 @@ export function BatchRefundForm() {
     duplicates: { index: number; vehicleNumber: string; existingRefundId: string }[]
     message: string
   }>({ show: false, duplicates: [], message: "" })
+  const [suggestions, setSuggestions] = useState<{ companyNames: string[]; dealerNames: string[] }>({
+    companyNames: [],
+    dealerNames: [],
+  })
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [submitCount, setSubmitCount] = useState(0)
+
+  useEffect(() => {
+    fetch("/api/refunds/suggestions")
+      .then((res) => res.json())
+      .then((data) => setSuggestions(data))
+      .catch(() => {})
+  }, [])
 
   const getTodayDate = () => {
     const today = new Date()
@@ -271,13 +288,31 @@ export function BatchRefundForm() {
       }
 
       const data = await res.json()
-      alert(`${data.createdCount}건의 환불 청구가 제출되었습니다.`)
-      router.push("/dashboard?success=batch")
+      setSubmitCount(data.createdCount)
+      setSubmitSuccess(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류가 발생했습니다.")
     } finally {
       setLoading(false)
     }
+  }
+
+  const resetFormForContinue = () => {
+    setLineItems([
+      {
+        id: crypto.randomUUID(),
+        refundDate: getTodayDate(),
+        vehicleNumber: "",
+        vin: "",
+        claimAmount: 0,
+        refundReason: "",
+        receiptDate: "",
+        photos: [],
+      },
+    ])
+    setError("")
+    setSubmitSuccess(false)
+    setSubmitCount(0)
   }
 
   const handleForceCreate = async () => {
@@ -342,7 +377,14 @@ export function BatchRefundForm() {
                   placeholder="상사명을 입력하세요"
                   required
                   disabled={loading}
+                  list="batch-companyName-list"
+                  autoComplete="off"
                 />
+                <datalist id="batch-companyName-list">
+                  {suggestions.companyNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -352,7 +394,14 @@ export function BatchRefundForm() {
                   onChange={(e) => setHeader({ ...header, dealerName: e.target.value })}
                   placeholder="홍길동"
                   disabled={loading}
+                  list="batch-dealerName-list"
+                  autoComplete="off"
                 />
+                <datalist id="batch-dealerName-list">
+                  {suggestions.dealerNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -573,7 +622,7 @@ export function BatchRefundForm() {
                     </Select>
                   </div>
 
-                  {(header.refundMethod === "card" || header.refundMethod === "offset") && (
+                  {(header.refundMethod === "card" || header.refundMethod === "offset" || header.refundMethod === "account") && (
                     <div className="space-y-2">
                       <Label>
                         성능완료일 <span className="text-destructive">*</span>
@@ -627,6 +676,27 @@ export function BatchRefundForm() {
           </Button>
         </div>
       </form>
+
+      <Dialog open={submitSuccess} onOpenChange={(open) => !open && setSubmitSuccess(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>일괄 환불 청구 완료</DialogTitle>
+            <DialogDescription>{submitCount}건의 환불 청구가 성공적으로 제출되었습니다.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.push("/dashboard")}
+            >
+              대시보드로 이동
+            </Button>
+            <Button type="button" onClick={resetFormForContinue}>
+              추가 입력
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Duplicate Warning Dialog */}
       <Dialog
