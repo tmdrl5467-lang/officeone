@@ -80,6 +80,14 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [filterStatus, setFilterStatus] = useState(searchParams.get("status") || "pending")
 
   const [vehicleSearch, setVehicleSearch] = useState("")
+  const [debouncedVehicleSearch, setDebouncedVehicleSearch] = useState("")
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedVehicleSearch(vehicleSearch)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [vehicleSearch])
 
   const [quickActionRefund, setQuickActionRefund] = useState<RefundRequest | null>(null)
   const [quickActionType, setQuickActionType] = useState<"approve" | "reject" | null>(null)
@@ -116,7 +124,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
       if (filterStatus && filterStatus !== "all") params.set("status", filterStatus)
-      if (vehicleSearch) params.set("vehicleNumber", vehicleSearch)
+      if (debouncedVehicleSearch) params.set("vehicleNumber", debouncedVehicleSearch)
       params.set("page", currentPage.toString())
       params.set("pageSize", pageSize.toString())
 
@@ -150,7 +158,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     } finally {
       setLoading(false)
     }
-  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, vehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
+  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, debouncedVehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
 
   const applyFilters = () => {
     setCurrentPage(1)
@@ -615,7 +623,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
   useEffect(() => {
     fetchRefunds()
-  }, [currentPage, filterKey, vehicleSearch, fetchRefunds])
+  }, [currentPage, filterKey, debouncedVehicleSearch, fetchRefunds])
 
   const getStatusBadge = (status: string, acknowledgedAt?: string, approvedAt?: string, isDuplicate?: boolean) => {
     const statusBadge = (() => {
