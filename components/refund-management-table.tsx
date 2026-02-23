@@ -19,6 +19,7 @@ import {
   FileDown,
   FileSpreadsheet,
   FileArchive,
+  Search,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog"
 import { Textarea } from "./ui/textarea"
@@ -80,14 +81,18 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [filterStatus, setFilterStatus] = useState(searchParams.get("status") || "pending")
 
   const [vehicleSearch, setVehicleSearch] = useState("")
-  const [debouncedVehicleSearch, setDebouncedVehicleSearch] = useState("")
+  const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedVehicleSearch(vehicleSearch)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [vehicleSearch])
+  const handleVehicleSearchExecute = () => {
+    setAppliedVehicleSearch(vehicleSearch)
+    setCurrentPage(1)
+  }
+
+  const handleVehicleSearchClear = () => {
+    setVehicleSearch("")
+    setAppliedVehicleSearch("")
+    setCurrentPage(1)
+  }
 
   const [quickActionRefund, setQuickActionRefund] = useState<RefundRequest | null>(null)
   const [quickActionType, setQuickActionType] = useState<"approve" | "reject" | null>(null)
@@ -124,7 +129,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
       if (filterStatus && filterStatus !== "all") params.set("status", filterStatus)
-      if (debouncedVehicleSearch) params.set("vehicleNumber", debouncedVehicleSearch)
+      if (appliedVehicleSearch) params.set("vehicleNumber", appliedVehicleSearch)
       params.set("page", currentPage.toString())
       params.set("pageSize", pageSize.toString())
 
@@ -158,7 +163,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     } finally {
       setLoading(false)
     }
-  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, debouncedVehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
+  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, appliedVehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
 
   const applyFilters = () => {
     setCurrentPage(1)
@@ -623,7 +628,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
   useEffect(() => {
     fetchRefunds()
-  }, [currentPage, filterKey, debouncedVehicleSearch, fetchRefunds])
+  }, [currentPage, filterKey, appliedVehicleSearch, fetchRefunds])
 
   const getStatusBadge = (status: string, acknowledgedAt?: string, approvedAt?: string, isDuplicate?: boolean) => {
     const statusBadge = (() => {
@@ -731,7 +736,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || vehicleSearch
+  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || appliedVehicleSearch
 
   // Server-side filtering - no client-side filter needed
   const filteredRefunds = refunds
@@ -789,27 +794,31 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                 )}
               </Button>
             )}
-            <div className="relative">
-              <Input
-                placeholder="차량번호 검색"
-                value={vehicleSearch}
-                onChange={(e) => {
-                  setVehicleSearch(e.target.value)
-                  setCurrentPage(1)
-                }}
-                className="w-48 pr-8"
-              />
-              {vehicleSearch && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-2"
-                  onClick={() => setVehicleSearch("")}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
+  <div className="flex items-center gap-1">
+  <Input
+  placeholder="차량번호 검색 (Enter)"
+  value={vehicleSearch}
+  onChange={(e) => setVehicleSearch(e.target.value)}
+  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleVehicleSearchExecute()
+                    }
+                  }}
+  className="w-48"
+  />
+  <Button variant="outline" size="sm" onClick={handleVehicleSearchExecute} disabled={!vehicleSearch}>
+  <Search className="h-4 w-4" />
+  </Button>
+  {appliedVehicleSearch && (
+  <Button
+  variant="ghost"
+  size="sm"
+  onClick={handleVehicleSearchClear}
+  >
+  <X className="h-4 w-4" />
+  </Button>
+  )}
+  </div>
           </div>
         </div>
 
