@@ -85,10 +85,12 @@ export async function GET(request: NextRequest) {
 
       totalPhotos += photoUrls.length
 
-      const vehicleNo = refund.vehicleNumber || "-"
-      const reason = refund.refundReason || "-"
-      const method = refund.refundMethod === "account" ? "계좌" : refund.refundMethod === "card" ? "카드" : "상계"
-      const baseName = `${vehicleNo}(${reason})${method}`
+      const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim()
+
+      // Track per-vehicle photo count
+      if (!fileNameCounter[vehicleNo]) {
+        fileNameCounter[vehicleNo] = 0
+      }
 
       for (let i = 0; i < photoUrls.length; i++) {
         const url = photoUrls[i]
@@ -106,15 +108,8 @@ export async function GET(request: NextRequest) {
           const urlParts = url.split(".")
           const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
 
-          let fileName = `${baseName}_${i + 1}.${ext}`
-
-          // Handle duplicate filenames
-          if (fileNameCounter[fileName]) {
-            fileNameCounter[fileName]++
-            fileName = `${baseName}_${i + 1}_${fileNameCounter[fileName]}.${ext}`
-          } else {
-            fileNameCounter[fileName] = 1
-          }
+          fileNameCounter[vehicleNo]++
+          const fileName = `${vehicleNo}_${fileNameCounter[vehicleNo]}.${ext}`
 
           zip.file(fileName, buffer)
           successPhotos++
