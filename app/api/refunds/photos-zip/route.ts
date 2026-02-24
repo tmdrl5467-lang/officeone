@@ -33,15 +33,19 @@ export async function GET(request: NextRequest) {
 
     console.log("[v0] ZIP download filters:", { fromDate, toDate, submitter, companyName })
 
+    console.log("[v0] photos-zip: Step 1 - Fetching refund IDs from Redis")
     const refundIds = (await redis.lrange("refunds:index", 0, -1)) as string[]
+    console.log("[v0] photos-zip: Step 1 done - refundIds count:", refundIds?.length)
 
     if (refundIds.length === 0) {
       return NextResponse.json({ error: "환불 데이터가 없습니다." }, { status: 404 })
     }
 
+    console.log("[v0] photos-zip: Step 2 - Pipeline fetch refunds")
     const pipeline = redis.pipeline()
     refundIds.forEach((id) => pipeline.get(`refund:${id}`))
     const results = await pipeline.exec()
+    console.log("[v0] photos-zip: Step 2 done - pipeline results count:", results?.length, "isArray:", Array.isArray(results))
 
     const refunds: RefundRequest[] = results.filter((result): result is RefundRequest => result !== null)
 
@@ -68,7 +72,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log(`[v0] Found ${filteredRefunds.length} refunds (filtered from ${refunds.length})`)
+    console.log(`[v0] photos-zip: Step 3 - Found ${filteredRefunds.length} refunds (filtered from ${refunds.length}), totalPhotos to process:`, filteredRefunds.reduce((acc, r) => acc + (r.receiptPhotos?.length || 0) + (r.bundledPhotos?.length || 0), 0))
 
     const zip = new JSZip()
     const failures: string[] = []
