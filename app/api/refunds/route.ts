@@ -123,6 +123,11 @@ export async function GET(request: NextRequest) {
     const submitter = searchParams.get("submitter")
     const companyName = searchParams.get("companyName")
     const vehicleNumber = searchParams.get("vehicleNumber")
+    const refundMethod = searchParams.get("refundMethod")
+    const refundReason = searchParams.get("refundReason")
+    const minAmount = searchParams.get("minAmount") ? Number(searchParams.get("minAmount")) : undefined
+    const maxAmount = searchParams.get("maxAmount") ? Number(searchParams.get("maxAmount")) : undefined
+    const acknowledged = searchParams.get("acknowledged")
     const page = Number.parseInt(searchParams.get("page") || "1")
     const pageSize = Number.parseInt(searchParams.get("pageSize") || "20")
     const status = searchParams.get("status")
@@ -130,8 +135,10 @@ export async function GET(request: NextRequest) {
     let refundIds: string[] = []
     let totalCount = 0
 
-    if (fromDate || toDate || submitter || companyName || vehicleNumber) {
-      const result = await getRefundIdsWithFilters(status, fromDate, toDate, submitter, companyName, page, pageSize, vehicleNumber || undefined)
+    const hasFilters = fromDate || toDate || submitter || companyName || vehicleNumber || (refundMethod && refundMethod !== "all") || (refundReason && refundReason !== "all") || minAmount !== undefined || maxAmount !== undefined || (acknowledged && acknowledged !== "all")
+
+    if (hasFilters) {
+      const result = await getRefundIdsWithFilters(status, fromDate, toDate, submitter, companyName, page, pageSize, vehicleNumber || undefined, refundMethod || undefined, refundReason || undefined, minAmount, maxAmount, acknowledged || undefined)
       refundIds = result.ids
       totalCount = result.totalCount
     } else {

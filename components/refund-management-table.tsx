@@ -79,6 +79,16 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [filterSubmitter, setFilterSubmitter] = useState(searchParams.get("submitter") || "all")
   const [filterCompanyName, setFilterCompanyName] = useState(searchParams.get("companyName") || "all")
   const [filterStatus, setFilterStatus] = useState(searchParams.get("status") || "pending")
+  const [filterRefundMethod, setFilterRefundMethod] = useState(searchParams.get("refundMethod") || "all")
+  const [filterRefundReason, setFilterRefundReason] = useState(searchParams.get("refundReason") || "all")
+  const [filterMinAmount, setFilterMinAmount] = useState(searchParams.get("minAmount") || "")
+  const [filterMaxAmount, setFilterMaxAmount] = useState(searchParams.get("maxAmount") || "")
+  const [filterAcknowledged, setFilterAcknowledged] = useState(searchParams.get("acknowledged") || "all")
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
+  const [bulkActionType, setBulkActionType] = useState<"approve" | "reject" | null>(null)
+  const [bulkRejectNotes, setBulkRejectNotes] = useState("")
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -116,8 +126,13 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       submitter: filterSubmitter,
       companyName: filterCompanyName,
       status: filterStatus,
+      refundMethod: filterRefundMethod,
+      refundReason: filterRefundReason,
+      minAmount: filterMinAmount,
+      maxAmount: filterMaxAmount,
+      acknowledged: filterAcknowledged,
     })
-  }, [filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus])
+  }, [filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, filterRefundMethod, filterRefundReason, filterMinAmount, filterMaxAmount, filterAcknowledged])
 
   const fetchRefunds = useCallback(async () => {
     try {
@@ -129,6 +144,11 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
       if (filterStatus && filterStatus !== "all") params.set("status", filterStatus)
+      if (filterRefundMethod && filterRefundMethod !== "all") params.set("refundMethod", filterRefundMethod)
+      if (filterRefundReason && filterRefundReason !== "all") params.set("refundReason", filterRefundReason)
+      if (filterMinAmount) params.set("minAmount", filterMinAmount)
+      if (filterMaxAmount) params.set("maxAmount", filterMaxAmount)
+      if (filterAcknowledged && filterAcknowledged !== "all") params.set("acknowledged", filterAcknowledged)
       if (appliedVehicleSearch) params.set("vehicleNumber", appliedVehicleSearch)
       params.set("page", currentPage.toString())
       params.set("pageSize", pageSize.toString())
@@ -163,7 +183,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     } finally {
       setLoading(false)
     }
-  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, appliedVehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
+  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, filterRefundMethod, filterRefundReason, filterMinAmount, filterMaxAmount, filterAcknowledged, appliedVehicleSearch, apiEndpoint])
 
   const applyFilters = () => {
     setCurrentPage(1)
@@ -175,7 +195,14 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     setFilterTo("")
     setFilterSubmitter("all")
     setFilterCompanyName("all")
-    setFilterStatus("pending") // Reset to default 'pending'
+    setFilterStatus("pending")
+    setFilterRefundMethod("all")
+    setFilterRefundReason("all")
+    setFilterMinAmount("")
+    setFilterMaxAmount("")
+    setFilterAcknowledged("all")
+    setVehicleSearch("")
+    setAppliedVehicleSearch("")
     setCurrentPage(1)
     router.push("/refunds")
   }
@@ -186,6 +213,69 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     from.setDate(from.getDate() - days)
     setFilterFrom(from.toISOString().split("T")[0])
     setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateThisWeek = () => {
+    const today = new Date()
+    const dayOfWeek = today.getDay()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+    setFilterFrom(monday.toISOString().split("T")[0])
+    setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateThisMonth = () => {
+    const today = new Date()
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
+    setFilterFrom(firstDay.toISOString().split("T")[0])
+    setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateLastMonth = () => {
+    const today = new Date()
+    const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const lastDay = new Date(today.getFullYear(), today.getMonth(), 0)
+    setFilterFrom(firstDay.toISOString().split("T")[0])
+    setFilterTo(lastDay.toISOString().split("T")[0])
+  }
+
+  const handleBulkAction = async () => {
+    if (!bulkActionType || selectedIds.size === 0) return
+
+    if (bulkActionType === "reject" && !bulkRejectNotes.trim()) {
+      alert("거부 사유를 입력해주세요.")
+      return
+    }
+
+    setBulkActionLoading(true)
+    try {
+      const ids = Array.from(selectedIds)
+      let failCount = 0
+      for (const id of ids) {
+        try {
+          const res = await fetch("/api/refunds/action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refundId: id, action: bulkActionType, notes: bulkActionType === "reject" ? bulkRejectNotes : "" }),
+          })
+          if (!res.ok) failCount++
+        } catch {
+          failCount++
+        }
+      }
+      if (failCount > 0) {
+        alert(`${ids.length}건 중 ${failCount}건 처리 실패`)
+      }
+      await fetchRefunds()
+      setSelectedIds(new Set())
+      setBulkActionType(null)
+      setBulkRejectNotes("")
+    } catch (error) {
+      console.error("[v0] Bulk action failed:", error)
+      alert("일괄 처리 중 오류가 발생했습니다.")
+    } finally {
+      setBulkActionLoading(false)
+    }
   }
 
   const handleAction = async (refundId: string, action: "approve" | "reject") => {
@@ -736,10 +826,46 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || appliedVehicleSearch
+  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || (filterRefundMethod && filterRefundMethod !== "all") || (filterRefundReason && filterRefundReason !== "all") || filterMinAmount || filterMaxAmount || (filterAcknowledged && filterAcknowledged !== "all") || appliedVehicleSearch
+
+  // Build active filter tags for display
+  const activeFilterTags: { label: string; key: string; onRemove: () => void }[] = []
+  if (filterFrom) activeFilterTags.push({ label: `시작일: ${filterFrom}`, key: "from", onRemove: () => setFilterFrom("") })
+  if (filterTo) activeFilterTags.push({ label: `종료일: ${filterTo}`, key: "to", onRemove: () => setFilterTo("") })
+  if (filterSubmitter && filterSubmitter !== "all") activeFilterTags.push({ label: `제출자: ${filterSubmitter}`, key: "submitter", onRemove: () => setFilterSubmitter("all") })
+  if (filterCompanyName && filterCompanyName !== "all") activeFilterTags.push({ label: `상사명: ${filterCompanyName}`, key: "company", onRemove: () => setFilterCompanyName("all") })
+  if (filterStatus && filterStatus !== "all" && filterStatus !== "pending") activeFilterTags.push({ label: `상태: ${filterStatus === "approved" ? "승인됨" : filterStatus === "rejected" ? "거부됨" : filterStatus}`, key: "status", onRemove: () => setFilterStatus("pending") })
+  if (filterRefundMethod && filterRefundMethod !== "all") activeFilterTags.push({ label: `환불수단: ${filterRefundMethod === "card" ? "카드" : filterRefundMethod === "account" ? "계좌" : "상계"}`, key: "method", onRemove: () => setFilterRefundMethod("all") })
+  if (filterRefundReason && filterRefundReason !== "all") activeFilterTags.push({ label: `환불사유: ${filterRefundReason}`, key: "reason", onRemove: () => setFilterRefundReason("all") })
+  if (filterMinAmount) activeFilterTags.push({ label: `최소금액: ${Number(filterMinAmount).toLocaleString()}원`, key: "min", onRemove: () => setFilterMinAmount("") })
+  if (filterMaxAmount) activeFilterTags.push({ label: `최대금액: ${Number(filterMaxAmount).toLocaleString()}원`, key: "max", onRemove: () => setFilterMaxAmount("") })
+  if (filterAcknowledged && filterAcknowledged !== "all") activeFilterTags.push({ label: `확인여부: ${filterAcknowledged === "yes" ? "확인완료" : "미확인"}`, key: "ack", onRemove: () => setFilterAcknowledged("all") })
+  if (appliedVehicleSearch) activeFilterTags.push({ label: `차량번호: ${appliedVehicleSearch}`, key: "vehicle", onRemove: handleVehicleSearchClear })
 
   // Server-side filtering - no client-side filter needed
   const filteredRefunds = refunds
+
+  // Bulk selection helpers
+  const pendingRefunds = filteredRefunds.filter((r) => r.status === "pending")
+  const allPendingSelected = pendingRefunds.length > 0 && pendingRefunds.every((r) => selectedIds.has(r.id))
+  const somePendingSelected = pendingRefunds.some((r) => selectedIds.has(r.id))
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(pendingRefunds.map((r) => r.id)))
+    }
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   if (loading) {
     return (
@@ -824,6 +950,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
         {showFilters && (
           <div className="rounded-lg border bg-muted/50 p-4 space-y-4">
+            {/* Basic Filters - Always visible */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-2">
                 <Label htmlFor="filter-from">시작일</Label>
@@ -846,41 +973,6 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="filter-submitter">제출자</Label>
-                <Select value={filterSubmitter} onValueChange={setFilterSubmitter}>
-                  <SelectTrigger id="filter-submitter">
-                    <SelectValue placeholder="전체" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    {uniqueSubmitters.map((submitter) => (
-                      <SelectItem key={submitter} value={submitter}>
-                        {submitter}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-company">상사명</Label>
-                <Select value={filterCompanyName} onValueChange={setFilterCompanyName}>
-                  <SelectTrigger id="filter-company">
-                    <SelectValue placeholder="전체" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    {uniqueCompanyNames.map((name) => (
-                      <SelectItem key={name} value={name!}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-2">
                 <Label htmlFor="filter-status">상태</Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger id="filter-status">
@@ -894,24 +986,133 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="filter-method">환불수단</Label>
+                <Select value={filterRefundMethod} onValueChange={setFilterRefundMethod}>
+                  <SelectTrigger id="filter-method">
+                    <SelectValue placeholder="전체" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">전체</SelectItem>
+                    <SelectItem value="card">카드</SelectItem>
+                    <SelectItem value="account">계좌</SelectItem>
+                    <SelectItem value="offset">상계</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
+            {/* Quick Date Buttons */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(0)}>
-                  오늘
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(7)}>
-                  7일
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(30)}>
-                  30일
-                </Button>
+              <span className="text-xs text-muted-foreground mr-1">빠른선택:</span>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(0)}>오늘</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateThisWeek}>이번 주</Button>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(7)}>7일</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateThisMonth}>이번 달</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateLastMonth}>지난 달</Button>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(30)}>30일</Button>
+            </div>
+
+            {/* Advanced Filters Toggle */}
+            <Button variant="ghost" size="sm" onClick={() => setShowAdvancedFilters(!showAdvancedFilters)} className="text-xs text-muted-foreground">
+              {showAdvancedFilters ? "- 고급 필터 숨기기" : "+ 고급 필터 더보기"}
+            </Button>
+
+            {/* Advanced Filters */}
+            {showAdvancedFilters && (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 pt-2 border-t">
+                <div className="space-y-2">
+                  <Label htmlFor="filter-submitter">제출자</Label>
+                  <Select value={filterSubmitter} onValueChange={setFilterSubmitter}>
+                    <SelectTrigger id="filter-submitter">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      {uniqueSubmitters.map((submitter) => (
+                        <SelectItem key={submitter} value={submitter}>
+                          {submitter}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-company">상사명</Label>
+                  <Select value={filterCompanyName} onValueChange={setFilterCompanyName}>
+                    <SelectTrigger id="filter-company">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      {uniqueCompanyNames.map((name) => (
+                        <SelectItem key={name} value={name!}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-reason">환불사유</Label>
+                  <Select value={filterRefundReason} onValueChange={setFilterRefundReason}>
+                    <SelectTrigger id="filter-reason">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="과다청구">과다청구</SelectItem>
+                      <SelectItem value="미인식">미인식</SelectItem>
+                      <SelectItem value="이중결제">이중결제</SelectItem>
+                      <SelectItem value="취소">취소</SelectItem>
+                      <SelectItem value="기타">기타</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-acknowledged">확인여부</Label>
+                  <Select value={filterAcknowledged} onValueChange={setFilterAcknowledged}>
+                    <SelectTrigger id="filter-acknowledged">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="yes">확인완료</SelectItem>
+                      <SelectItem value="no">미확인</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-min-amount">최소 금액</Label>
+                  <Input
+                    id="filter-min-amount"
+                    type="number"
+                    placeholder="0"
+                    value={filterMinAmount}
+                    onChange={(e) => setFilterMinAmount(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-max-amount">최대 금액</Label>
+                  <Input
+                    id="filter-max-amount"
+                    type="number"
+                    placeholder="무제한"
+                    value={filterMaxAmount}
+                    onChange={(e) => setFilterMaxAmount(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
               </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex-1" />
               <Button variant="outline" size="sm" onClick={resetFilters}>
                 <X className="mr-2 h-4 w-4" />
-                초기화
+                전체 초기화
               </Button>
               <Button size="sm" onClick={applyFilters}>
                 <Filter className="mr-2 h-4 w-4" />
@@ -920,7 +1121,58 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
             </div>
           </div>
         )}
+
+        {/* Active Filter Tags */}
+        {activeFilterTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">적용된 필터:</span>
+            {activeFilterTags.map((tag) => (
+              <Badge key={tag.key} variant="secondary" className="flex items-center gap-1 text-xs">
+                {tag.label}
+                <button onClick={tag.onRemove} className="ml-1 hover:text-destructive" aria-label={`${tag.label} 필터 제거`}>
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+            <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={resetFilters}>
+              모두 제거
+            </Button>
+          </div>
+        )}
       </div>
+      {/* Bulk Action Bar */}
+      {user?.role === "COMMANDER" && selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 p-3">
+          <span className="text-sm font-medium">{selectedIds.size}건 선택됨</span>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            선택 해제
+          </Button>
+          <Button
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 text-white"
+            onClick={() => setBulkActionType("approve")}
+            disabled={bulkActionLoading}
+          >
+            <CheckCircle className="mr-2 h-4 w-4" />
+            일괄 승인
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setBulkActionType("reject")}
+            disabled={bulkActionLoading}
+          >
+            <XCircle className="mr-2 h-4 w-4" />
+            일괄 거부
+          </Button>
+        </div>
+      )}
+
       {filteredRefunds.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <p className="text-muted-foreground">
@@ -933,6 +1185,16 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
             <Table>
               <TableHeader>
                 <TableRow>
+                  {user?.role === "COMMANDER" && filterStatus === "pending" && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allPendingSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="전체 선택"
+                        className={somePendingSelected && !allPendingSelected ? "opacity-50" : ""}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>청구 ID</TableHead>
                   <TableHead>차량번호</TableHead>
                   <TableHead>제출자</TableHead>
@@ -948,7 +1210,18 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
               </TableHeader>
               <TableBody>
                 {filteredRefunds.map((refund) => (
-                  <TableRow key={refund.id}>
+                  <TableRow key={refund.id} className={selectedIds.has(refund.id) ? "bg-muted/50" : ""}>
+                    {user?.role === "COMMANDER" && filterStatus === "pending" && (
+                      <TableCell className="w-10">
+                        {refund.status === "pending" ? (
+                          <Checkbox
+                            checked={selectedIds.has(refund.id)}
+                            onCheckedChange={() => toggleSelectOne(refund.id)}
+                            aria-label={`${refund.vehicleNumber || refund.id} 선택`}
+                          />
+                        ) : null}
+                      </TableCell>
+                    )}
                     <TableCell className="font-mono text-xs">{refund.id.slice(0, 16)}...</TableCell>
                     <TableCell className="font-semibold">{refund.vehicleNumber || "-"}</TableCell>
                     <TableCell className="text-sm">
@@ -1743,6 +2016,63 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                 "승인"
               ) : (
                 "거부"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Action Confirmation Dialog */}
+      <AlertDialog
+        open={bulkActionType !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkActionType(null)
+            setBulkRejectNotes("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkActionType === "approve" ? "일괄 승인 확인" : "일괄 거부 확인"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedIds.size}건의 환불 청구를{" "}
+              {bulkActionType === "approve" ? "승인" : "거부"}하시겠습니까?
+              {bulkActionType === "approve" && " 이 작업은 되돌릴 수 없습니다."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {bulkActionType === "reject" && (
+            <div className="space-y-2 py-2">
+              <Label htmlFor="bulk-reject-notes">거부 사유 (필수)</Label>
+              <Textarea
+                id="bulk-reject-notes"
+                value={bulkRejectNotes}
+                onChange={(e) => setBulkRejectNotes(e.target.value)}
+                placeholder="거부 사유를 입력해주세요 (모든 선택 건에 동일하게 적용됩니다)"
+                rows={3}
+              />
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkActionLoading}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkAction}
+              disabled={bulkActionLoading}
+              className={bulkActionType === "approve" ? "bg-green-600 hover:bg-green-700" : ""}
+            >
+              {bulkActionLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  처리 중... ({selectedIds.size}건)
+                </>
+              ) : bulkActionType === "approve" ? (
+                `${selectedIds.size}건 승인`
+              ) : (
+                `${selectedIds.size}건 거부`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
