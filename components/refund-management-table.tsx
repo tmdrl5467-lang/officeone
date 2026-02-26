@@ -239,28 +239,6 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     setFilterTo(lastDay.toISOString().split("T")[0])
   }
 
-  // Bulk selection helpers
-  const pendingRefunds = filteredRefunds.filter((r) => r.status === "pending")
-  const allPendingSelected = pendingRefunds.length > 0 && pendingRefunds.every((r) => selectedIds.has(r.id))
-  const somePendingSelected = pendingRefunds.some((r) => selectedIds.has(r.id))
-
-  const toggleSelectAll = () => {
-    if (allPendingSelected) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(pendingRefunds.map((r) => r.id)))
-    }
-  }
-
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
   const handleBulkAction = async () => {
     if (!bulkActionType || selectedIds.size === 0) return
 
@@ -866,6 +844,28 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
   // Server-side filtering - no client-side filter needed
   const filteredRefunds = refunds
+
+  // Bulk selection helpers
+  const pendingRefunds = filteredRefunds.filter((r) => r.status === "pending")
+  const allPendingSelected = pendingRefunds.length > 0 && pendingRefunds.every((r) => selectedIds.has(r.id))
+  const somePendingSelected = pendingRefunds.some((r) => selectedIds.has(r.id))
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(pendingRefunds.map((r) => r.id)))
+    }
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   if (loading) {
     return (
