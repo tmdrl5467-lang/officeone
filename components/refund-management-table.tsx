@@ -85,6 +85,10 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [filterMaxAmount, setFilterMaxAmount] = useState(searchParams.get("maxAmount") || "")
   const [filterAcknowledged, setFilterAcknowledged] = useState(searchParams.get("acknowledged") || "all")
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
+  const [bulkActionType, setBulkActionType] = useState<"approve" | "reject" | null>(null)
+  const [bulkRejectNotes, setBulkRejectNotes] = useState("")
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -233,6 +237,67 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     const lastDay = new Date(today.getFullYear(), today.getMonth(), 0)
     setFilterFrom(firstDay.toISOString().split("T")[0])
     setFilterTo(lastDay.toISOString().split("T")[0])
+  }
+
+  // Bulk selection helpers
+  const pendingRefunds = filteredRefunds.filter((r) => r.status === "pending")
+  const allPendingSelected = pendingRefunds.length > 0 && pendingRefunds.every((r) => selectedIds.has(r.id))
+  const somePendingSelected = pendingRefunds.some((r) => selectedIds.has(r.id))
+
+  const toggleSelectAll = () => {
+    if (allPendingSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(pendingRefunds.map((r) => r.id)))
+    }
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleBulkAction = async () => {
+    if (!bulkActionType || selectedIds.size === 0) return
+
+    if (bulkActionType === "reject" && !bulkRejectNotes.trim()) {
+      alert("거부 사유를 입력해주세요.")
+      return
+    }
+
+    setBulkActionLoading(true)
+    try {
+      const ids = Array.from(selectedIds)
+      let failCount = 0
+      for (const id of ids) {
+        try {
+          const res = await fetch("/api/refunds/action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refundId: id, action: bulkActionType, notes: bulkActionType === "reject" ? bulkRejectNotes : "" }),
+          })
+          if (!res.ok) failCount++
+        } catch {
+          failCount++
+        }
+      }
+      if (failCount > 0) {
+        alert(`${ids.length}건 중 ${failCount}건 처리 실패`)
+      }
+      await fetchRefunds()
+      setSelectedIds(new Set())
+      setBulkActionType(null)
+      setBulkRejectNotes("")
+    } catch (error) {
+      console.error("[v0] Bulk action failed:", error)
+      alert("일괄 처리 중 오류가 발생했습니다.")
+    } finally {
+      setBulkActionLoading(false)
+    }
   }
 
   const handleAction = async (refundId: string, action: "approve" | "reject") => {
@@ -1075,6 +1140,39 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
           </div>
         )}
       </div>
+      {/* Bulk Action Bar */}
+      {user?.role === "COMMANDER" && selectedIds.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/50 p-3">
+          <span className="text-sm font-medium">{selectedIds.size}건 선택됨</span>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            선택 해제
+          </Button>
+          <Button
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 text-white"
+            onClick={() => setBulkActionType("approve")}
+            disabled={bulkActionLoading}
+          >
+            <CheckCircle className="mr-2 h-4 w-4" />
+            일괄 승인
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => setBulkActionType("reject")}
+            disabled={bulkActionLoading}
+          >
+            <XCircle className="mr-2 h-4 w-4" />
+            일괄 거부
+          </Button>
+        </div>
+      )}
+
       {filteredRefunds.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <p className="text-muted-foreground">
@@ -1087,6 +1185,16 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
             <Table>
               <TableHeader>
                 <TableRow>
+                  {user?.role === "COMMANDER" && filterStatus === "pending" && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allPendingSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="전체 선택"
+                        className={somePendingSelected && !allPendingSelected ? "opacity-50" : ""}
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>청구 ID</TableHead>
                   <TableHead>차량번호</TableHead>
                   <TableHead>제출자</TableHead>
@@ -1102,7 +1210,18 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
               </TableHeader>
               <TableBody>
                 {filteredRefunds.map((refund) => (
-                  <TableRow key={refund.id}>
+                  <TableRow key={refund.id} className={selectedIds.has(refund.id) ? "bg-muted/50" : ""}>
+                    {user?.role === "COMMANDER" && filterStatus === "pending" && (
+                      <TableCell className="w-10">
+                        {refund.status === "pending" ? (
+                          <Checkbox
+                            checked={selectedIds.has(refund.id)}
+                            onCheckedChange={() => toggleSelectOne(refund.id)}
+                            aria-label={`${refund.vehicleNumber || refund.id} 선택`}
+                          />
+                        ) : null}
+                      </TableCell>
+                    )}
                     <TableCell className="font-mono text-xs">{refund.id.slice(0, 16)}...</TableCell>
                     <TableCell className="font-semibold">{refund.vehicleNumber || "-"}</TableCell>
                     <TableCell className="text-sm">
@@ -1897,6 +2016,63 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                 "승인"
               ) : (
                 "거부"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Action Confirmation Dialog */}
+      <AlertDialog
+        open={bulkActionType !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkActionType(null)
+            setBulkRejectNotes("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkActionType === "approve" ? "일괄 승인 확인" : "일괄 거부 확인"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedIds.size}건의 환불 청구를{" "}
+              {bulkActionType === "approve" ? "승인" : "거부"}하시겠습니까?
+              {bulkActionType === "approve" && " 이 작업은 되돌릴 수 없습니다."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {bulkActionType === "reject" && (
+            <div className="space-y-2 py-2">
+              <Label htmlFor="bulk-reject-notes">거부 사유 (필수)</Label>
+              <Textarea
+                id="bulk-reject-notes"
+                value={bulkRejectNotes}
+                onChange={(e) => setBulkRejectNotes(e.target.value)}
+                placeholder="거부 사유를 입력해주세요 (모든 선택 건에 동일하게 적용됩니다)"
+                rows={3}
+              />
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkActionLoading}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkAction}
+              disabled={bulkActionLoading}
+              className={bulkActionType === "approve" ? "bg-green-600 hover:bg-green-700" : ""}
+            >
+              {bulkActionLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  처리 중... ({selectedIds.size}건)
+                </>
+              ) : bulkActionType === "approve" ? (
+                `${selectedIds.size}건 승인`
+              ) : (
+                `${selectedIds.size}건 거부`
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
