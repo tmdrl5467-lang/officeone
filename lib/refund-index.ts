@@ -85,6 +85,11 @@ export async function getRefundIdsWithFilters(
   page = 1,
   pageSize = 20,
   vehicleNumber?: string,
+  refundMethod?: string,
+  refundReason?: string,
+  minAmount?: number,
+  maxAmount?: number,
+  acknowledged?: string,
 ): Promise<{ ids: string[]; totalCount: number; hasMore: boolean }> {
   const pageStart = (page - 1) * pageSize
   const pageEnd = pageStart + pageSize
@@ -143,6 +148,23 @@ export async function getRefundIdsWithFilters(
         const search = vehicleNumber.replace(/[\s-]/g, "").toLowerCase()
         if (!vn.includes(search)) return false
       }
+
+      // Refund method filter
+      if (refundMethod && refundMethod !== "all" && refund.refundMethod !== refundMethod) return false
+
+      // Refund reason filter
+      if (refundReason && refundReason !== "all") {
+        const reason = (refund.refundReason || "").toLowerCase()
+        if (!reason.includes(refundReason.toLowerCase())) return false
+      }
+
+      // Amount range filter
+      if (minAmount !== undefined && !isNaN(minAmount) && (refund.claimAmount || 0) < minAmount) return false
+      if (maxAmount !== undefined && !isNaN(maxAmount) && (refund.claimAmount || 0) > maxAmount) return false
+
+      // Acknowledged filter (for rejected refunds)
+      if (acknowledged === "yes" && !refund.acknowledgedAt) return false
+      if (acknowledged === "no" && refund.acknowledgedAt) return false
 
       return true
     })

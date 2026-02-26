@@ -79,6 +79,12 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [filterSubmitter, setFilterSubmitter] = useState(searchParams.get("submitter") || "all")
   const [filterCompanyName, setFilterCompanyName] = useState(searchParams.get("companyName") || "all")
   const [filterStatus, setFilterStatus] = useState(searchParams.get("status") || "pending")
+  const [filterRefundMethod, setFilterRefundMethod] = useState(searchParams.get("refundMethod") || "all")
+  const [filterRefundReason, setFilterRefundReason] = useState(searchParams.get("refundReason") || "all")
+  const [filterMinAmount, setFilterMinAmount] = useState(searchParams.get("minAmount") || "")
+  const [filterMaxAmount, setFilterMaxAmount] = useState(searchParams.get("maxAmount") || "")
+  const [filterAcknowledged, setFilterAcknowledged] = useState(searchParams.get("acknowledged") || "all")
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -116,8 +122,13 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       submitter: filterSubmitter,
       companyName: filterCompanyName,
       status: filterStatus,
+      refundMethod: filterRefundMethod,
+      refundReason: filterRefundReason,
+      minAmount: filterMinAmount,
+      maxAmount: filterMaxAmount,
+      acknowledged: filterAcknowledged,
     })
-  }, [filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus])
+  }, [filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, filterRefundMethod, filterRefundReason, filterMinAmount, filterMaxAmount, filterAcknowledged])
 
   const fetchRefunds = useCallback(async () => {
     try {
@@ -129,6 +140,11 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
       if (filterStatus && filterStatus !== "all") params.set("status", filterStatus)
+      if (filterRefundMethod && filterRefundMethod !== "all") params.set("refundMethod", filterRefundMethod)
+      if (filterRefundReason && filterRefundReason !== "all") params.set("refundReason", filterRefundReason)
+      if (filterMinAmount) params.set("minAmount", filterMinAmount)
+      if (filterMaxAmount) params.set("maxAmount", filterMaxAmount)
+      if (filterAcknowledged && filterAcknowledged !== "all") params.set("acknowledged", filterAcknowledged)
       if (appliedVehicleSearch) params.set("vehicleNumber", appliedVehicleSearch)
       params.set("page", currentPage.toString())
       params.set("pageSize", pageSize.toString())
@@ -163,7 +179,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     } finally {
       setLoading(false)
     }
-  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, appliedVehicleSearch, apiEndpoint]) // Added all dependencies so fetchRefunds updates when filters or page changes
+  }, [currentPage, filterFrom, filterTo, filterSubmitter, filterCompanyName, filterStatus, filterRefundMethod, filterRefundReason, filterMinAmount, filterMaxAmount, filterAcknowledged, appliedVehicleSearch, apiEndpoint])
 
   const applyFilters = () => {
     setCurrentPage(1)
@@ -175,7 +191,14 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     setFilterTo("")
     setFilterSubmitter("all")
     setFilterCompanyName("all")
-    setFilterStatus("pending") // Reset to default 'pending'
+    setFilterStatus("pending")
+    setFilterRefundMethod("all")
+    setFilterRefundReason("all")
+    setFilterMinAmount("")
+    setFilterMaxAmount("")
+    setFilterAcknowledged("all")
+    setVehicleSearch("")
+    setAppliedVehicleSearch("")
     setCurrentPage(1)
     router.push("/refunds")
   }
@@ -186,6 +209,30 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     from.setDate(from.getDate() - days)
     setFilterFrom(from.toISOString().split("T")[0])
     setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateThisWeek = () => {
+    const today = new Date()
+    const dayOfWeek = today.getDay()
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+    setFilterFrom(monday.toISOString().split("T")[0])
+    setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateThisMonth = () => {
+    const today = new Date()
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
+    setFilterFrom(firstDay.toISOString().split("T")[0])
+    setFilterTo(today.toISOString().split("T")[0])
+  }
+
+  const setQuickDateLastMonth = () => {
+    const today = new Date()
+    const firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const lastDay = new Date(today.getFullYear(), today.getMonth(), 0)
+    setFilterFrom(firstDay.toISOString().split("T")[0])
+    setFilterTo(lastDay.toISOString().split("T")[0])
   }
 
   const handleAction = async (refundId: string, action: "approve" | "reject") => {
@@ -736,7 +783,21 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || appliedVehicleSearch
+  const hasActiveFilters = filterFrom || filterTo || (filterSubmitter && filterSubmitter !== "all") || (filterCompanyName && filterCompanyName !== "all") || (filterStatus && filterStatus !== "all" && filterStatus !== "pending") || (filterRefundMethod && filterRefundMethod !== "all") || (filterRefundReason && filterRefundReason !== "all") || filterMinAmount || filterMaxAmount || (filterAcknowledged && filterAcknowledged !== "all") || appliedVehicleSearch
+
+  // Build active filter tags for display
+  const activeFilterTags: { label: string; key: string; onRemove: () => void }[] = []
+  if (filterFrom) activeFilterTags.push({ label: `시작일: ${filterFrom}`, key: "from", onRemove: () => setFilterFrom("") })
+  if (filterTo) activeFilterTags.push({ label: `종료일: ${filterTo}`, key: "to", onRemove: () => setFilterTo("") })
+  if (filterSubmitter && filterSubmitter !== "all") activeFilterTags.push({ label: `제출자: ${filterSubmitter}`, key: "submitter", onRemove: () => setFilterSubmitter("all") })
+  if (filterCompanyName && filterCompanyName !== "all") activeFilterTags.push({ label: `상사명: ${filterCompanyName}`, key: "company", onRemove: () => setFilterCompanyName("all") })
+  if (filterStatus && filterStatus !== "all" && filterStatus !== "pending") activeFilterTags.push({ label: `상태: ${filterStatus === "approved" ? "승인됨" : filterStatus === "rejected" ? "거부됨" : filterStatus}`, key: "status", onRemove: () => setFilterStatus("pending") })
+  if (filterRefundMethod && filterRefundMethod !== "all") activeFilterTags.push({ label: `환불수단: ${filterRefundMethod === "card" ? "카드" : filterRefundMethod === "account" ? "계좌" : "상계"}`, key: "method", onRemove: () => setFilterRefundMethod("all") })
+  if (filterRefundReason && filterRefundReason !== "all") activeFilterTags.push({ label: `환불사유: ${filterRefundReason}`, key: "reason", onRemove: () => setFilterRefundReason("all") })
+  if (filterMinAmount) activeFilterTags.push({ label: `최소금액: ${Number(filterMinAmount).toLocaleString()}원`, key: "min", onRemove: () => setFilterMinAmount("") })
+  if (filterMaxAmount) activeFilterTags.push({ label: `최대금액: ${Number(filterMaxAmount).toLocaleString()}원`, key: "max", onRemove: () => setFilterMaxAmount("") })
+  if (filterAcknowledged && filterAcknowledged !== "all") activeFilterTags.push({ label: `확인여부: ${filterAcknowledged === "yes" ? "확인완료" : "미확인"}`, key: "ack", onRemove: () => setFilterAcknowledged("all") })
+  if (appliedVehicleSearch) activeFilterTags.push({ label: `차량번호: ${appliedVehicleSearch}`, key: "vehicle", onRemove: handleVehicleSearchClear })
 
   // Server-side filtering - no client-side filter needed
   const filteredRefunds = refunds
@@ -824,6 +885,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
         {showFilters && (
           <div className="rounded-lg border bg-muted/50 p-4 space-y-4">
+            {/* Basic Filters - Always visible */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-2">
                 <Label htmlFor="filter-from">시작일</Label>
@@ -846,41 +908,6 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="filter-submitter">제출자</Label>
-                <Select value={filterSubmitter} onValueChange={setFilterSubmitter}>
-                  <SelectTrigger id="filter-submitter">
-                    <SelectValue placeholder="전체" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    {uniqueSubmitters.map((submitter) => (
-                      <SelectItem key={submitter} value={submitter}>
-                        {submitter}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="filter-company">상사명</Label>
-                <Select value={filterCompanyName} onValueChange={setFilterCompanyName}>
-                  <SelectTrigger id="filter-company">
-                    <SelectValue placeholder="전체" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    {uniqueCompanyNames.map((name) => (
-                      <SelectItem key={name} value={name!}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <div className="space-y-2">
                 <Label htmlFor="filter-status">상태</Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
                   <SelectTrigger id="filter-status">
@@ -894,30 +921,157 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="filter-method">환불수단</Label>
+                <Select value={filterRefundMethod} onValueChange={setFilterRefundMethod}>
+                  <SelectTrigger id="filter-method">
+                    <SelectValue placeholder="전체" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">전체</SelectItem>
+                    <SelectItem value="card">카드</SelectItem>
+                    <SelectItem value="account">계좌</SelectItem>
+                    <SelectItem value="offset">상계</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
+            {/* Quick Date Buttons */}
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(0)}>
-                  오늘
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(7)}>
-                  7일
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setQuickDate(30)}>
-                  30일
-                </Button>
+              <span className="text-xs text-muted-foreground mr-1">빠른선택:</span>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(0)}>오늘</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateThisWeek}>이번 주</Button>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(7)}>7일</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateThisMonth}>이번 달</Button>
+              <Button variant="secondary" size="sm" onClick={setQuickDateLastMonth}>지난 달</Button>
+              <Button variant="secondary" size="sm" onClick={() => setQuickDate(30)}>30일</Button>
+            </div>
+
+            {/* Advanced Filters Toggle */}
+            <Button variant="ghost" size="sm" onClick={() => setShowAdvancedFilters(!showAdvancedFilters)} className="text-xs text-muted-foreground">
+              {showAdvancedFilters ? "- 고급 필터 숨기기" : "+ 고급 필터 더보기"}
+            </Button>
+
+            {/* Advanced Filters */}
+            {showAdvancedFilters && (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 pt-2 border-t">
+                <div className="space-y-2">
+                  <Label htmlFor="filter-submitter">제출자</Label>
+                  <Select value={filterSubmitter} onValueChange={setFilterSubmitter}>
+                    <SelectTrigger id="filter-submitter">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      {uniqueSubmitters.map((submitter) => (
+                        <SelectItem key={submitter} value={submitter}>
+                          {submitter}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-company">상사명</Label>
+                  <Select value={filterCompanyName} onValueChange={setFilterCompanyName}>
+                    <SelectTrigger id="filter-company">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      {uniqueCompanyNames.map((name) => (
+                        <SelectItem key={name} value={name!}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-reason">환불사유</Label>
+                  <Select value={filterRefundReason} onValueChange={setFilterRefundReason}>
+                    <SelectTrigger id="filter-reason">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="과다청구">과다청구</SelectItem>
+                      <SelectItem value="미인식">미인식</SelectItem>
+                      <SelectItem value="이중결제">이중결제</SelectItem>
+                      <SelectItem value="취소">취소</SelectItem>
+                      <SelectItem value="기타">기타</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-acknowledged">확인여부</Label>
+                  <Select value={filterAcknowledged} onValueChange={setFilterAcknowledged}>
+                    <SelectTrigger id="filter-acknowledged">
+                      <SelectValue placeholder="전체" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="yes">확인완료</SelectItem>
+                      <SelectItem value="no">미확인</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-min-amount">최소 금액</Label>
+                  <Input
+                    id="filter-min-amount"
+                    type="number"
+                    placeholder="0"
+                    value={filterMinAmount}
+                    onChange={(e) => setFilterMinAmount(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="filter-max-amount">최대 금액</Label>
+                  <Input
+                    id="filter-max-amount"
+                    type="number"
+                    placeholder="무제한"
+                    value={filterMaxAmount}
+                    onChange={(e) => setFilterMaxAmount(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
               </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex-1" />
               <Button variant="outline" size="sm" onClick={resetFilters}>
                 <X className="mr-2 h-4 w-4" />
-                초기화
+                전체 초기화
               </Button>
               <Button size="sm" onClick={applyFilters}>
                 <Filter className="mr-2 h-4 w-4" />
                 적용
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* Active Filter Tags */}
+        {activeFilterTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">적용된 필터:</span>
+            {activeFilterTags.map((tag) => (
+              <Badge key={tag.key} variant="secondary" className="flex items-center gap-1 text-xs">
+                {tag.label}
+                <button onClick={tag.onRemove} className="ml-1 hover:text-destructive" aria-label={`${tag.label} 필터 제거`}>
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+            <Button variant="ghost" size="sm" className="text-xs h-6 px-2" onClick={resetFilters}>
+              모두 제거
+            </Button>
           </div>
         )}
       </div>
