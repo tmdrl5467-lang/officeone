@@ -31,6 +31,14 @@ export async function GET(request: NextRequest) {
     const submitter = searchParams.get("submitter")
     const companyName = searchParams.get("companyName")
 
+    // 날짜 범위 필수 체크
+    if (!fromDate || !toDate) {
+      return NextResponse.json(
+        { error: "날짜 범위를 지정해주세요. (시작일과 종료일 필수)" },
+        { status: 400 }
+      )
+    }
+
     console.log("[v0] ZIP download filters:", { fromDate, toDate, submitter, companyName })
 
     console.log("[v0] photos-zip: Step 1 - Fetching refund IDs from Redis")
