@@ -31,14 +31,6 @@ export async function GET(request: NextRequest) {
     const submitter = searchParams.get("submitter")
     const companyName = searchParams.get("companyName")
 
-    // 날짜 범위 필수 체크
-    if (!fromDate || !toDate) {
-      return NextResponse.json(
-        { error: "날짜 범위를 지정해주세요. (시작일과 종료일 필수)" },
-        { status: 400 }
-      )
-    }
-
     console.log("[v0] ZIP download filters:", { fromDate, toDate, submitter, companyName })
 
     console.log("[v0] photos-zip: Step 1 - Fetching refund IDs from Redis")
@@ -88,6 +80,9 @@ export async function GET(request: NextRequest) {
     let successPhotos = 0
     const fileNameCounter: Record<string, number> = {}
 
+    // Collect all photo tasks
+    const photoTasks: { url: string; vehicleNo: string; index: number }[] = []
+    
     for (const refund of filteredRefunds) {
       const photoUrls: string[] = []
       if (refund.receiptPhotos) photoUrls.push(...refund.receiptPhotos)
@@ -95,39 +90,48 @@ export async function GET(request: NextRequest) {
 
       if (photoUrls.length === 0) continue
 
-      totalPhotos += photoUrls.length
-
       const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim()
 
-      // Track per-vehicle photo count
       if (!fileNameCounter[vehicleNo]) {
         fileNameCounter[vehicleNo] = 0
       }
 
-      for (let i = 0; i < photoUrls.length; i++) {
-        const url = photoUrls[i]
+      for (const url of photoUrls) {
+        fileNameCounter[vehicleNo]++
+        photoTasks.push({ url, vehicleNo, index: fileNameCounter[vehicleNo] })
+      }
+    }
 
-        try {
-          const response = await fetch(url)
+    totalPhotos = photoTasks.length
+    console.log(`[v0] Processing ${totalPhotos} photos in parallel batches`)
+
+    // Process in parallel batches of 10
+    const BATCH_SIZE = 10
+    for (let i = 0; i < photoTasks.length; i += BATCH_SIZE) {
+      const batch = photoTasks.slice(i, i + BATCH_SIZE)
+      
+      const results = await Promise.allSettled(
+        batch.map(async (task) => {
+          const response = await fetch(task.url)
           if (!response.ok) {
-            failures.push(`${url} - HTTP ${response.status}`)
-            continue
+            throw new Error(`HTTP ${response.status}`)
           }
-
           const arrayBuffer = await response.arrayBuffer()
           const buffer = Buffer.from(arrayBuffer)
-
-          const urlParts = url.split(".")
+          const urlParts = task.url.split(".")
           const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
+          const fileName = `${task.vehicleNo}_${task.index}.${ext}`
+          return { fileName, buffer }
+        })
+      )
 
-          fileNameCounter[vehicleNo]++
-          const fileName = `${vehicleNo}_${fileNameCounter[vehicleNo]}.${ext}`
-
-          zip.file(fileName, buffer)
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j]
+        if (result.status === "fulfilled") {
+          zip.file(result.value.fileName, result.value.buffer)
           successPhotos++
-        } catch (error) {
-          console.error(`[v0] Failed to fetch ${url}:`, error)
-          failures.push(`${url} - ${error}`)
+        } else {
+          failures.push(`${batch[j].url} - ${result.reason}`)
         }
       }
     }
