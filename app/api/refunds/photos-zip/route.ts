@@ -109,30 +109,40 @@ export async function GET(request: NextRequest) {
     const BATCH_SIZE = 10
     for (let i = 0; i < photoTasks.length; i += BATCH_SIZE) {
       const batch = photoTasks.slice(i, i + BATCH_SIZE)
+      console.log(`[v0] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(photoTasks.length / BATCH_SIZE)}`)
       
-      const results = await Promise.allSettled(
-        batch.map(async (task) => {
-          const response = await fetch(task.url)
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`)
-          }
-          const arrayBuffer = await response.arrayBuffer()
-          const buffer = Buffer.from(arrayBuffer)
-          const urlParts = task.url.split(".")
-          const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
-          const fileName = `${task.vehicleNo}_${task.index}.${ext}`
-          return { fileName, buffer }
-        })
-      )
+      try {
+        const results = await Promise.allSettled(
+          batch.map(async (task) => {
+            if (!task.url || typeof task.url !== 'string') {
+              throw new Error(`Invalid URL: ${task.url}`)
+            }
+            const response = await fetch(task.url)
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`)
+            }
+            const arrayBuffer = await response.arrayBuffer()
+            const buffer = Buffer.from(arrayBuffer)
+            const urlParts = task.url.split(".")
+            const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
+            const fileName = `${task.vehicleNo}_${task.index}.${ext}`
+            return { fileName, buffer }
+          })
+        )
 
-      for (let j = 0; j < results.length; j++) {
-        const result = results[j]
-        if (result.status === "fulfilled") {
-          zip.file(result.value.fileName, result.value.buffer)
-          successPhotos++
-        } else {
-          failures.push(`${batch[j].url} - ${result.reason}`)
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j]
+          if (result.status === "fulfilled") {
+            zip.file(result.value.fileName, result.value.buffer)
+            successPhotos++
+          } else {
+            console.log(`[v0] Photo failed: ${batch[j].vehicleNo}_${batch[j].index} - ${result.reason}`)
+            failures.push(`${batch[j].url} - ${result.reason}`)
+          }
         }
+      } catch (batchError) {
+        console.error(`[v0] Batch ${Math.floor(i / BATCH_SIZE) + 1} error:`, batchError)
+        // Continue with next batch even if this one fails
       }
     }
 
