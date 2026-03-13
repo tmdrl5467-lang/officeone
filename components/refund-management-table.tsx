@@ -457,30 +457,36 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   }
 
   const handleDownloadPhotosZip = async () => {
+    // 날짜 필터가 필수
+    if (!filterFrom || !filterTo) {
+      alert("사진 ZIP 다운로드를 위해 날짜 범위를 지정해주세요.\n(필터에서 시작일과 종료일을 선택하세요)")
+      setShowFilters(true)
+      return
+    }
+
     setZipLoading(true)
     try {
       const params = new URLSearchParams()
-      if (filterFrom) params.set("from", filterFrom)
-      if (filterTo) params.set("to", filterTo)
+      params.set("from", filterFrom)
+      params.set("to", filterTo)
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
-      // ZIP download should also respect filters, but not pagination
-      params.set("page", "1") // Start from the first page for ZIP download
-      params.set("pageSize", (totalCount || refunds.length).toString()) // Download all relevant photos
 
       const queryString = params.toString()
-      const url = `/api/refunds/photos-zip${queryString ? `?${queryString}` : ""}`
+      const url = `/api/refunds/photos-zip?${queryString}`
 
       const res = await fetch(url)
 
       if (!res.ok) {
         let errorMessage = "사진 ZIP 다운로드에 실패했습니다."
         try {
-          const data = await res.json()
+          // Clone response before reading to avoid "body stream already read" error
+          const clonedRes = res.clone()
+          const data = await clonedRes.json()
           errorMessage = data.error || errorMessage
         } catch {
-          const text = await res.text()
-          errorMessage = text || errorMessage
+          // If JSON parsing fails, response was not JSON
+          errorMessage = `서버 오류 (${res.status})`
         }
         alert(errorMessage)
         return
@@ -906,7 +912,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 엑셀 {hasActiveFilters ? "(필터 적용)" : "(전체)"}
   </Button>
             {user?.role === "COMMANDER" && (
-              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm" title={hasActiveFilters ? "현재 필터 조건에 해당하는 사진만 다운로드됩니다" : "전체 사진을 다운로드합니다"}>
+              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm" title={filterFrom && filterTo ? `${filterFrom} ~ ${filterTo} 기간의 사진을 다운로드합니다` : "날짜 범위를 먼저 지정해주세요"}>
                 {zipLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
