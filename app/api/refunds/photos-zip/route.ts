@@ -166,6 +166,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("[v0] ZIP download error:", error)
-    return NextResponse.json({ error: "ZIP 파일 생성에 실패했습니다." }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+    return NextResponse.json({ error: `ZIP 파일 생성에 실패했습니다: ${errorMessage}` }, { status: 500 })
   }
 }
