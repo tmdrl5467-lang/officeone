@@ -457,23 +457,16 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   }
 
   const handleDownloadPhotosZip = async () => {
-    // 날짜 필터가 필수
-    if (!filterFrom || !filterTo) {
-      alert("사진 ZIP 다운로드를 위해 날짜 범위를 지정해주세요.\n(필터에서 시작일과 종료일을 선택하세요)")
-      setShowFilters(true)
-      return
-    }
-
     setZipLoading(true)
     try {
       const params = new URLSearchParams()
-      params.set("from", filterFrom)
-      params.set("to", filterTo)
+      if (filterFrom) params.set("from", filterFrom)
+      if (filterTo) params.set("to", filterTo)
       if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
       if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
 
       const queryString = params.toString()
-      const url = `/api/refunds/photos-zip?${queryString}`
+      const url = `/api/refunds/photos-zip${queryString ? `?${queryString}` : ""}`
 
       const res = await fetch(url)
 
