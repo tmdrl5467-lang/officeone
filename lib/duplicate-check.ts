@@ -9,15 +9,18 @@ import type { RefundRequest } from "./types"
 export function generateDuplicateKey(
   vehicleNumber: string,
   companyName: string,
-  refundMethod: string,
+  refundMethod: string | string[],
   claimAmount: number,
 ): string {
+  // refundMethod가 배열이면 첫 번째 값 사용
+  const refundMethodStr = Array.isArray(refundMethod) ? refundMethod[0] || "" : refundMethod || ""
+  
   // 공백 제거 및 대소문자 통일
   const normalized = [
-    vehicleNumber.replace(/\s/g, "").toUpperCase(),
-    companyName.replace(/\s/g, "").toUpperCase(),
-    refundMethod.toLowerCase(),
-    claimAmount.toString(),
+    (vehicleNumber || "").replace(/\s/g, "").toUpperCase(),
+    (companyName || "").replace(/\s/g, "").toUpperCase(),
+    refundMethodStr.toLowerCase(),
+    (claimAmount || 0).toString(),
   ].join("|")
 
   // SHA-256 해시 생성
@@ -32,7 +35,7 @@ export function generateDuplicateKey(
 export async function checkDuplicateRefund(
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string,
+  refundMethod: string | string[],
   claimAmount: number,
 ): Promise<string | null> {
   try {
@@ -71,7 +74,7 @@ export async function registerDuplicateKey(
   refundId: string,
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string,
+  refundMethod: string | string[],
   claimAmount: number,
 ): Promise<void> {
   try {
@@ -96,7 +99,7 @@ export async function registerDuplicateKey(
 export async function removeDuplicateKey(
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string,
+  refundMethod: string | string[],
   claimAmount: number,
 ): Promise<void> {
   try {
