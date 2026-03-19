@@ -458,17 +458,28 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  // 클라이언트 사이드에서 현재 화면의 사진 직접 다운로드
+  // 전체 환불건 사진 다운로드 (필터/페이지네이션 영향 없음)
   const handleClientSidePhotosDownload = async () => {
-    if (refunds.length === 0) {
-      alert("다운로드할 사진이 없습니다.")
-      return
-    }
-
     setClientZipLoading(true)
     setClientZipProgress({ current: 0, total: 0 })
 
     try {
+      // 1. 전체 환불건 데이터 가져오기 (필터/페이지네이션 없이)
+      const res = await fetch("/api/refunds?pageSize=10000")
+      if (!res.ok) {
+        alert("환불건 데이터를 가져오는데 실패했습니다.")
+        setClientZipLoading(false)
+        return
+      }
+      const data = await res.json()
+      const allRefunds: RefundRequest[] = data.data || []
+
+      if (allRefunds.length === 0) {
+        alert("다운로드할 환불건이 없습니다.")
+        setClientZipLoading(false)
+        return
+      }
+
       // JSZip 동적 로드
       const JSZip = (await import("jszip")).default
       const zip = new JSZip()
@@ -477,7 +488,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       const photoTasks: { url: string; vehicleNo: string; index: number }[] = []
       const fileNameCounter: Record<string, number> = {}
 
-      for (const refund of refunds) {
+      for (const refund of allRefunds) {
         const photoUrls: string[] = []
         
         if (refund.receiptPhotos && Array.isArray(refund.receiptPhotos)) {
@@ -558,7 +569,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       const link = document.createElement("a")
       link.href = urlObj
       const today = new Date().toISOString().split("T")[0]
-      link.download = `refund_photos_${today}.zip`
+      link.download = `refund_photos_all_${today}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -566,7 +577,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 
       toast({
         title: "다운로드 완료",
-        description: `${successCount}/${photoTasks.length}장의 사진이 다운로드되었습니다.${failures.length > 0 ? ` (${failures.length}건 실패)` : ""}`,
+        description: `전체 ${allRefunds.length}건 중 ${successCount}/${photoTasks.length}장의 사진이 다운로드되었습니다.${failures.length > 0 ? ` (${failures.length}건 실패)` : ""}`,
       })
     } catch (error) {
       console.error("Client-side photo download failed:", error)
@@ -973,22 +984,22 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
             {user?.role === "COMMANDER" && (
               <Button 
                 onClick={handleClientSidePhotosDownload} 
-                disabled={clientZipLoading || refunds.length === 0} 
+                disabled={clientZipLoading} 
                 variant="outline" 
                 size="sm" 
-                title={`현재 화면의 ${refunds.length}건 환불 사진을 다운로드합니다`}
+                title="전체 환불건의 사진을 다운로드합니다 (필터/페이지 영향 없음)"
               >
                 {clientZipLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {clientZipProgress.total > 0 
                       ? `${clientZipProgress.current}/${clientZipProgress.total}` 
-                      : "준비 중..."}
+                      : "데이터 로딩..."}
                   </>
                 ) : (
                   <>
                     <FileArchive className="mr-2 h-4 w-4" />
-                    사진 다운로드 ({refunds.length}건)
+                    전체 사진 다운로드
                   </>
                 )}
               </Button>
