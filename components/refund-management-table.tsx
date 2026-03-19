@@ -472,7 +472,7 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
         return
       }
       const data = await res.json()
-      const allRefunds: RefundRequest[] = data.data || []
+      const allRefunds: RefundRequest[] = data.refunds || []
 
       if (allRefunds.length === 0) {
         alert("다운로드할 환불건이 없습니다.")
