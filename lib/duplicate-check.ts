@@ -9,18 +9,25 @@ import type { RefundRequest } from "./types"
 export function generateDuplicateKey(
   vehicleNumber: string,
   companyName: string,
-  refundMethod: string | string[],
+  refundMethod: unknown,
   claimAmount: number,
 ): string {
-  // refundMethod가 배열이면 첫 번째 값 사용
-  const refundMethodStr = Array.isArray(refundMethod) ? refundMethod[0] || "" : refundMethod || ""
+  // refundMethod 안전한 문자열 변환
+  let refundMethodStr = ""
+  if (typeof refundMethod === "string") {
+    refundMethodStr = refundMethod
+  } else if (Array.isArray(refundMethod) && refundMethod.length > 0 && typeof refundMethod[0] === "string") {
+    refundMethodStr = refundMethod[0]
+  } else if (refundMethod && typeof refundMethod === "object") {
+    refundMethodStr = JSON.stringify(refundMethod)
+  }
   
   // 공백 제거 및 대소문자 통일
   const normalized = [
-    (vehicleNumber || "").replace(/\s/g, "").toUpperCase(),
-    (companyName || "").replace(/\s/g, "").toUpperCase(),
+    String(vehicleNumber || "").replace(/\s/g, "").toUpperCase(),
+    String(companyName || "").replace(/\s/g, "").toUpperCase(),
     refundMethodStr.toLowerCase(),
-    (claimAmount || 0).toString(),
+    String(claimAmount || 0),
   ].join("|")
 
   // SHA-256 해시 생성
@@ -35,7 +42,7 @@ export function generateDuplicateKey(
 export async function checkDuplicateRefund(
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string | string[],
+  refundMethod: unknown,
   claimAmount: number,
 ): Promise<string | null> {
   try {
@@ -74,7 +81,7 @@ export async function registerDuplicateKey(
   refundId: string,
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string | string[],
+  refundMethod: unknown,
   claimAmount: number,
 ): Promise<void> {
   try {
@@ -99,7 +106,7 @@ export async function registerDuplicateKey(
 export async function removeDuplicateKey(
   vehicleNumber: string,
   companyName: string | undefined,
-  refundMethod: string | string[],
+  refundMethod: unknown,
   claimAmount: number,
 ): Promise<void> {
   try {
