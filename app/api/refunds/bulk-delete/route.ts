@@ -91,12 +91,17 @@ export async function POST(request: NextRequest) {
           await redis.lrem(`refunds:branch:${refund.submittedByBranch}`, 0, refund.id)
         }
 
-        await removeDuplicateKey(
-          refund.vehicleNumber || "",
-          refund.companyName,
-          refund.refundMethod || "",
-          refund.claimAmount || 0,
-        )
+        // 중복키 삭제 시도 (실패해도 진행)
+        try {
+          await removeDuplicateKey(
+            refund.vehicleNumber || "",
+            refund.companyName,
+            refund.refundMethod || "",
+            refund.claimAmount || 0,
+          )
+        } catch {
+          // 중복키 삭제 실패는 무시
+        }
 
         deletedCount++
       } catch {
