@@ -89,6 +89,12 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [bulkActionType, setBulkActionType] = useState<"approve" | "reject" | null>(null)
   const [bulkRejectNotes, setBulkRejectNotes] = useState("")
+  const [clientZipLoading, setClientZipLoading] = useState(false)
+  const [clientZipProgress, setClientZipProgress] = useState({ current: 0, total: 0 })
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
+  const [bulkDeleteFrom, setBulkDeleteFrom] = useState("")
+  const [bulkDeleteTo, setBulkDeleteTo] = useState("")
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -456,58 +462,176 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  const handleDownloadPhotosZip = async () => {
-    setZipLoading(true)
+  // 전체 환불건 사진 다운로드 (필터/페이지네이션 영향 없음)
+  const handleClientSidePhotosDownload = async () => {
+    setClientZipLoading(true)
+    setClientZipProgress({ current: 0, total: 0 })
+
     try {
-      const params = new URLSearchParams()
-      if (filterFrom) params.set("from", filterFrom)
-      if (filterTo) params.set("to", filterTo)
-      if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
-      if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
-
-      const queryString = params.toString()
-      const url = `/api/refunds/photos-zip${queryString ? `?${queryString}` : ""}`
-
-      const res = await fetch(url)
-
+      // 1. 전체 환불건 데이터 가져오기 (필터/페이지네이션 없이)
+      const res = await fetch("/api/refunds?pageSize=10000")
       if (!res.ok) {
-        let errorMessage = "사진 ZIP 다운로드에 실패했습니다."
-        try {
-          // Clone response before reading to avoid "body stream already read" error
-          const clonedRes = res.clone()
-          const data = await clonedRes.json()
-          errorMessage = data.error || errorMessage
-        } catch {
-          // If JSON parsing fails, response was not JSON
-          errorMessage = `서버 오류 (${res.status})`
-        }
-        alert(errorMessage)
+        alert("환불건 데이터를 가져오는데 실패했습니다.")
+        setClientZipLoading(false)
+        return
+      }
+      const data = await res.json()
+      const allRefunds: RefundRequest[] = data.refunds || []
+
+      if (allRefunds.length === 0) {
+        alert("다운로드할 환불건이 없습니다.")
+        setClientZipLoading(false)
         return
       }
 
-      const blob = await res.blob()
-      const urlObj = URL.createObjectURL(blob)
+      // JSZip 동적 로드
+      const JSZip = (await import("jszip")).default
+      const zip = new JSZip()
+
+      // 모든 사진 URL 수집
+      const photoTasks: { url: string; vehicleNo: string; index: number }[] = []
+      const fileNameCounter: Record<string, number> = {}
+
+      for (const refund of allRefunds) {
+        const photoUrls: string[] = []
+        
+        if (refund.receiptPhotos && Array.isArray(refund.receiptPhotos)) {
+          photoUrls.push(...refund.receiptPhotos.filter((url): url is string => 
+            typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+          ))
+        }
+        if (refund.bundledPhotos && Array.isArray(refund.bundledPhotos)) {
+          photoUrls.push(...refund.bundledPhotos.filter((url): url is string => 
+            typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+          ))
+        }
+
+        if (photoUrls.length === 0) continue
+
+        const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim() || "unknown"
+
+        if (!fileNameCounter[vehicleNo]) {
+          fileNameCounter[vehicleNo] = 0
+        }
+
+        for (const url of photoUrls) {
+          fileNameCounter[vehicleNo]++
+          photoTasks.push({ url, vehicleNo, index: fileNameCounter[vehicleNo] })
+        }
+      }
+
+      if (photoTasks.length === 0) {
+        alert("다운로드할 사진이 없습니다.")
+        setClientZipLoading(false)
+        return
+      }
+
+      setClientZipProgress({ current: 0, total: photoTasks.length })
+
+      // 사진 다운로드 (5개씩 병렬 처리)
+      const BATCH_SIZE = 5
+      let successCount = 0
+      const failures: string[] = []
+
+      for (let i = 0; i < photoTasks.length; i += BATCH_SIZE) {
+        const batch = photoTasks.slice(i, i + BATCH_SIZE)
+
+        const results = await Promise.allSettled(
+          batch.map(async (task) => {
+            const response = await fetch(task.url)
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const arrayBuffer = await response.arrayBuffer()
+            const urlParts = task.url.split(".")
+            const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
+            const fileName = `${task.vehicleNo}_${task.index}.${ext}`
+            return { fileName, buffer: arrayBuffer }
+          })
+        )
+
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j]
+          if (result.status === "fulfilled") {
+            zip.file(result.value.fileName, result.value.buffer)
+            successCount++
+          } else {
+            failures.push(batch[j].vehicleNo)
+          }
+        }
+
+        setClientZipProgress({ current: Math.min(i + BATCH_SIZE, photoTasks.length), total: photoTasks.length })
+      }
+
+      if (successCount === 0) {
+        alert("모든 사진 다운로드에 실패했습니다.")
+        setClientZipLoading(false)
+        return
+      }
+
+      // ZIP 생성 및 다운로드
+      const zipBlob = await zip.generateAsync({ type: "blob" })
+      const urlObj = URL.createObjectURL(zipBlob)
       const link = document.createElement("a")
       link.href = urlObj
-
       const today = new Date().toISOString().split("T")[0]
-      link.download = `refund_photos_${today}.zip`
-
+      link.download = `refund_photos_all_${today}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(urlObj)
 
-      // Use toast for user feedback
       toast({
         title: "다운로드 완료",
-        description: "사진 ZIP 파일이 다운로드되었습니다.",
+        description: `전체 ${allRefunds.length}건 중 ${successCount}/${photoTasks.length}장의 사진이 다운로드되었습니다.${failures.length > 0 ? ` (${failures.length}건 실패)` : ""}`,
       })
     } catch (error) {
-      console.error("[v0] Failed to download photos ZIP:", error)
-      alert("사진 ZIP 다운로드 중 오류가 발생했습니다.")
+      console.error("Client-side photo download failed:", error)
+      alert("사진 다운로드 중 오류가 발생했습니다.")
     } finally {
-      setZipLoading(false)
+      setClientZipLoading(false)
+      setClientZipProgress({ current: 0, total: 0 })
+    }
+  }
+
+  // 기간별 일괄 삭제
+  const handleBulkDelete = async () => {
+    if (!bulkDeleteFrom || !bulkDeleteTo) {
+      alert("시작일과 종료일을 지정해주세요.")
+      return
+    }
+
+    const confirmMsg = `${bulkDeleteFrom} ~ ${bulkDeleteTo} 기간의 모든 환불건을 삭제합니다.\n\n이 작업은 되돌릴 수 없습니다. 정말 삭제하시겠습니까?`
+    if (!confirm(confirmMsg)) return
+
+    setBulkDeleteLoading(true)
+    try {
+      const res = await fetch("/api/refunds/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate: bulkDeleteFrom, toDate: bulkDeleteTo }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        alert(data.error || "삭제에 실패했습니다.")
+        return
+      }
+
+      toast({
+        title: "삭제 완료",
+        description: data.message,
+      })
+
+      setShowBulkDeleteDialog(false)
+      setBulkDeleteFrom("")
+      setBulkDeleteTo("")
+      // 페이지 새로고침으로 데이터 갱신
+      window.location.reload()
+    } catch (error) {
+      console.error("Bulk delete failed:", error)
+      alert("일괄 삭제 중 오류가 발생했습니다.")
+    } finally {
+      setBulkDeleteLoading(false)
     }
   }
 
@@ -905,18 +1029,37 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 엑셀 {hasActiveFilters ? "(필터 적용)" : "(전체)"}
   </Button>
             {user?.role === "COMMANDER" && (
-              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm" title={filterFrom && filterTo ? `${filterFrom} ~ ${filterTo} 기간의 사진을 다운로드합니다` : "날짜 범위를 먼저 지정해주세요"}>
-                {zipLoading ? (
+              <Button 
+                onClick={handleClientSidePhotosDownload} 
+                disabled={clientZipLoading} 
+                variant="outline" 
+                size="sm" 
+                title="전체 환불건의 사진을 다운로드합니다 (필터/페이지 영향 없음)"
+              >
+                {clientZipLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ZIP 생성 중...
+                    {clientZipProgress.total > 0 
+                      ? `${clientZipProgress.current}/${clientZipProgress.total}` 
+                      : "데이터 로딩..."}
                   </>
                 ) : (
                   <>
                     <FileArchive className="mr-2 h-4 w-4" />
-                    사진 ZIP 다운로드
+                    전체 사진 다운로드
                   </>
                 )}
+              </Button>
+            )}
+            {user?.role === "COMMANDER" && (
+              <Button 
+                onClick={() => setShowBulkDeleteDialog(true)} 
+                variant="destructive" 
+                size="sm" 
+                title="기간을 지정하여 환불건을 일괄 삭제합니다"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                기간별 삭제
               </Button>
             )}
   <div className="flex items-center gap-1">
@@ -2077,6 +2220,59 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 기간별 삭제 다이얼로그 */}
+      <Dialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>기간별 환불건 삭제</DialogTitle>
+            <DialogDescription>
+              지정한 기간의 모든 환불건과 관련 사진이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="bulk-delete-from">시작일</Label>
+                <Input
+                  id="bulk-delete-from"
+                  type="date"
+                  value={bulkDeleteFrom}
+                  onChange={(e) => setBulkDeleteFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bulk-delete-to">종료일</Label>
+                <Input
+                  id="bulk-delete-to"
+                  type="date"
+                  value={bulkDeleteTo}
+                  onChange={(e) => setBulkDeleteTo(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setShowBulkDeleteDialog(false)} disabled={bulkDeleteLoading}>
+                취소
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={handleBulkDelete} 
+                disabled={bulkDeleteLoading || !bulkDeleteFrom || !bulkDeleteTo}
+              >
+                {bulkDeleteLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    삭제 중...
+                  </>
+                ) : (
+                  "삭제 실행"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -31,21 +31,26 @@ export async function GET(request: NextRequest) {
     const submitter = searchParams.get("submitter")
     const companyName = searchParams.get("companyName")
 
-    console.log("[v0] ZIP download filters:", { fromDate, toDate, submitter, companyName })
+    // 1. 날짜 범위 필수화
+    if (!fromDate || !toDate) {
+      return NextResponse.json(
+        { error: "날짜 범위를 지정해주세요. (시작일과 종료일 필수)" },
+        { status: 400 }
+      )
+    }
 
-    console.log("[v0] photos-zip: Step 1 - Fetching refund IDs from Redis")
+    // 최대 사진 수 제한
+    const MAX_PHOTOS = 1000
+
     const refundIds = (await redis.lrange("refunds:index", 0, -1)) as string[]
-    console.log("[v0] photos-zip: Step 1 done - refundIds count:", refundIds?.length)
 
     if (refundIds.length === 0) {
       return NextResponse.json({ error: "환불 데이터가 없습니다." }, { status: 404 })
     }
 
-    console.log("[v0] photos-zip: Step 2 - Pipeline fetch refunds")
     const pipeline = redis.pipeline()
     refundIds.forEach((id) => pipeline.get(`refund:${id}`))
     const results = await pipeline.exec()
-    console.log("[v0] photos-zip: Step 2 done - pipeline results count:", results?.length, "isArray:", Array.isArray(results))
 
     const refunds: RefundRequest[] = results.filter((result): result is RefundRequest => result !== null)
 
@@ -72,81 +77,100 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log(`[v0] photos-zip: Step 3 - Found ${filteredRefunds.length} refunds (filtered from ${refunds.length}), totalPhotos to process:`, filteredRefunds.reduce((acc, r) => acc + (r.receiptPhotos?.length || 0) + (r.bundledPhotos?.length || 0), 0))
-
     const zip = new JSZip()
     const failures: string[] = []
     let totalPhotos = 0
     let successPhotos = 0
     const fileNameCounter: Record<string, number> = {}
 
-    // Collect all photo tasks
+    // Collect all photo tasks with URL validation
     const photoTasks: { url: string; vehicleNo: string; index: number }[] = []
     
     for (const refund of filteredRefunds) {
       const photoUrls: string[] = []
-      if (refund.receiptPhotos) photoUrls.push(...refund.receiptPhotos)
-      if (refund.bundledPhotos) photoUrls.push(...refund.bundledPhotos)
+      
+      // 2. null/undefined URL 필터링
+      if (refund.receiptPhotos && Array.isArray(refund.receiptPhotos)) {
+        photoUrls.push(...refund.receiptPhotos.filter((url): url is string => 
+          typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+        ))
+      }
+      if (refund.bundledPhotos && Array.isArray(refund.bundledPhotos)) {
+        photoUrls.push(...refund.bundledPhotos.filter((url): url is string => 
+          typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+        ))
+      }
 
       if (photoUrls.length === 0) continue
 
-      const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim()
+      const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim() || "unknown"
 
       if (!fileNameCounter[vehicleNo]) {
         fileNameCounter[vehicleNo] = 0
       }
 
       for (const url of photoUrls) {
+        // 3. 최대 사진 수 제한 체크
+        if (photoTasks.length >= MAX_PHOTOS) {
+          break
+        }
         fileNameCounter[vehicleNo]++
         photoTasks.push({ url, vehicleNo, index: fileNameCounter[vehicleNo] })
+      }
+      
+      if (photoTasks.length >= MAX_PHOTOS) {
+        break
       }
     }
 
     totalPhotos = photoTasks.length
-    console.log(`[v0] Processing ${totalPhotos} photos in parallel batches`)
-
+    
     // Process in parallel batches of 10
     const BATCH_SIZE = 10
     for (let i = 0; i < photoTasks.length; i += BATCH_SIZE) {
       const batch = photoTasks.slice(i, i + BATCH_SIZE)
       
-      const results = await Promise.allSettled(
-        batch.map(async (task) => {
-          const response = await fetch(task.url)
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`)
-          }
-          const arrayBuffer = await response.arrayBuffer()
-          const buffer = Buffer.from(arrayBuffer)
-          const urlParts = task.url.split(".")
-          const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
-          const fileName = `${task.vehicleNo}_${task.index}.${ext}`
-          return { fileName, buffer }
-        })
-      )
+      try {
+        const results = await Promise.allSettled(
+          batch.map(async (task) => {
+            if (!task.url || typeof task.url !== 'string') {
+              throw new Error(`Invalid URL: ${task.url}`)
+            }
+            const response = await fetch(task.url)
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`)
+            }
+            const arrayBuffer = await response.arrayBuffer()
+            const buffer = Buffer.from(arrayBuffer)
+            const urlParts = task.url.split(".")
+            const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
+            const fileName = `${task.vehicleNo}_${task.index}.${ext}`
+            return { fileName, buffer }
+          })
+        )
 
-      for (let j = 0; j < results.length; j++) {
-        const result = results[j]
-        if (result.status === "fulfilled") {
-          zip.file(result.value.fileName, result.value.buffer)
-          successPhotos++
-        } else {
-          failures.push(`${batch[j].url} - ${result.reason}`)
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j]
+          if (result.status === "fulfilled") {
+            zip.file(result.value.fileName, result.value.buffer)
+            successPhotos++
+          } else {
+            failures.push(`${batch[j].url} - ${result.reason}`)
+          }
         }
+      } catch {
+        // 4. 에러 발생 시에도 계속 진행
       }
     }
 
     if (failures.length > 0) {
       const failuresText = failures.join("\n")
       zip.file("failures.txt", failuresText)
-      console.log(`[v0] ${failures.length} photos failed to download`)
     }
 
     if (successPhotos === 0) {
       return NextResponse.json({ error: "다운로드할 사진이 없습니다." }, { status: 404 })
     }
-
-    console.log(`[v0] Creating ZIP with ${successPhotos}/${totalPhotos} photos`)
 
     const zipBuffer = await zip.generateAsync({
       type: "nodebuffer",
@@ -166,6 +190,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("[v0] ZIP download error:", error)
-    return NextResponse.json({ error: "ZIP 파일 생성에 실패했습니다." }, { status: 500 })
+    const errorMessage = error instanceof Error ? error.message : "알 수 없는 오류"
+    return NextResponse.json({ error: `ZIP 파일 생성에 실패했습니다: ${errorMessage}` }, { status: 500 })
   }
 }
