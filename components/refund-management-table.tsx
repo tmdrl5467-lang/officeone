@@ -91,6 +91,10 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [bulkRejectNotes, setBulkRejectNotes] = useState("")
   const [clientZipLoading, setClientZipLoading] = useState(false)
   const [clientZipProgress, setClientZipProgress] = useState({ current: 0, total: 0 })
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
+  const [bulkDeleteFrom, setBulkDeleteFrom] = useState("")
+  const [bulkDeleteTo, setBulkDeleteTo] = useState("")
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -588,6 +592,48 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
+  // 기간별 일괄 삭제
+  const handleBulkDelete = async () => {
+    if (!bulkDeleteFrom || !bulkDeleteTo) {
+      alert("시작일과 종료일을 지정해주세요.")
+      return
+    }
+
+    const confirmMsg = `${bulkDeleteFrom} ~ ${bulkDeleteTo} 기간의 모든 환불건을 삭제합니다.\n\n이 작업은 되돌릴 수 없습니다. 정말 삭제하시겠습니까?`
+    if (!confirm(confirmMsg)) return
+
+    setBulkDeleteLoading(true)
+    try {
+      const res = await fetch("/api/refunds/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate: bulkDeleteFrom, toDate: bulkDeleteTo }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        alert(data.error || "삭제에 실패했습니다.")
+        return
+      }
+
+      toast({
+        title: "삭제 완료",
+        description: data.message,
+      })
+
+      setShowBulkDeleteDialog(false)
+      setBulkDeleteFrom("")
+      setBulkDeleteTo("")
+      mutate()
+    } catch (error) {
+      console.error("Bulk delete failed:", error)
+      alert("일괄 삭제 중 오류가 발생했습니다.")
+    } finally {
+      setBulkDeleteLoading(false)
+    }
+  }
+
   const downloadAllPhotos = async (refund: RefundRequest) => {
     setDownloadLoading(true)
     try {
@@ -1002,6 +1048,17 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
                     전체 사진 다운로드
                   </>
                 )}
+              </Button>
+            )}
+            {user?.role === "COMMANDER" && (
+              <Button 
+                onClick={() => setShowBulkDeleteDialog(true)} 
+                variant="destructive" 
+                size="sm" 
+                title="기간을 지정하여 환불건을 일괄 삭제합니다"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                기간별 삭제
               </Button>
             )}
   <div className="flex items-center gap-1">
@@ -2162,6 +2219,59 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 기간별 삭제 다이얼로그 */}
+      <Dialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>기간별 환불건 삭제</DialogTitle>
+            <DialogDescription>
+              지정한 기간의 모든 환불건과 관련 사진이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="bulk-delete-from">시작일</Label>
+                <Input
+                  id="bulk-delete-from"
+                  type="date"
+                  value={bulkDeleteFrom}
+                  onChange={(e) => setBulkDeleteFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bulk-delete-to">종료일</Label>
+                <Input
+                  id="bulk-delete-to"
+                  type="date"
+                  value={bulkDeleteTo}
+                  onChange={(e) => setBulkDeleteTo(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button variant="outline" onClick={() => setShowBulkDeleteDialog(false)} disabled={bulkDeleteLoading}>
+                취소
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={handleBulkDelete} 
+                disabled={bulkDeleteLoading || !bulkDeleteFrom || !bulkDeleteTo}
+              >
+                {bulkDeleteLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    삭제 중...
+                  </>
+                ) : (
+                  "삭제 실행"
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
