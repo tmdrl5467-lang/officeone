@@ -89,6 +89,8 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [bulkActionType, setBulkActionType] = useState<"approve" | "reject" | null>(null)
   const [bulkRejectNotes, setBulkRejectNotes] = useState("")
+  const [clientZipLoading, setClientZipLoading] = useState(false)
+  const [clientZipProgress, setClientZipProgress] = useState({ current: 0, total: 0 })
 
   const [vehicleSearch, setVehicleSearch] = useState("")
   const [appliedVehicleSearch, setAppliedVehicleSearch] = useState("")
@@ -456,65 +458,122 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
     }
   }
 
-  const handleDownloadPhotosZip = async () => {
-    // 날짜 범위 필수 체크
-    if (!filterFrom || !filterTo) {
-      alert("사진 ZIP 다운로드를 위해 날짜 범위를 지정해주세요.\n(필터에서 시작일과 종료일을 선택하세요)")
-      setShowFilters(true)
+  // 클라이언트 사이드에서 현재 화면의 사진 직접 다운로드
+  const handleClientSidePhotosDownload = async () => {
+    if (refunds.length === 0) {
+      alert("다운로드할 사진이 없습니다.")
       return
     }
 
-    setZipLoading(true)
+    setClientZipLoading(true)
+    setClientZipProgress({ current: 0, total: 0 })
+
     try {
-      const params = new URLSearchParams()
-      params.set("from", filterFrom)
-      params.set("to", filterTo)
-      if (filterSubmitter && filterSubmitter !== "all") params.set("submitter", filterSubmitter)
-      if (filterCompanyName && filterCompanyName !== "all") params.set("companyName", filterCompanyName)
+      // JSZip 동적 로드
+      const JSZip = (await import("jszip")).default
+      const zip = new JSZip()
 
-      const queryString = params.toString()
-      const url = `/api/refunds/photos-zip${queryString ? `?${queryString}` : ""}`
+      // 모든 사진 URL 수집
+      const photoTasks: { url: string; vehicleNo: string; index: number }[] = []
+      const fileNameCounter: Record<string, number> = {}
 
-      const res = await fetch(url)
-
-      if (!res.ok) {
-        let errorMessage = "사진 ZIP 다운로드에 실패했습니다."
-        try {
-          // Clone response before reading to avoid "body stream already read" error
-          const clonedRes = res.clone()
-          const data = await clonedRes.json()
-          errorMessage = data.error || errorMessage
-        } catch {
-          // If JSON parsing fails, response was not JSON
-          errorMessage = `서버 오류 (${res.status})`
+      for (const refund of refunds) {
+        const photoUrls: string[] = []
+        
+        if (refund.receiptPhotos && Array.isArray(refund.receiptPhotos)) {
+          photoUrls.push(...refund.receiptPhotos.filter((url): url is string => 
+            typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+          ))
         }
-        alert(errorMessage)
+        if (refund.bundledPhotos && Array.isArray(refund.bundledPhotos)) {
+          photoUrls.push(...refund.bundledPhotos.filter((url): url is string => 
+            typeof url === 'string' && url.trim().length > 0 && url.startsWith('http')
+          ))
+        }
+
+        if (photoUrls.length === 0) continue
+
+        const vehicleNo = (refund.vehicleNumber || "unknown").replace(/[/\\:*?"<>|]/g, "").trim() || "unknown"
+
+        if (!fileNameCounter[vehicleNo]) {
+          fileNameCounter[vehicleNo] = 0
+        }
+
+        for (const url of photoUrls) {
+          fileNameCounter[vehicleNo]++
+          photoTasks.push({ url, vehicleNo, index: fileNameCounter[vehicleNo] })
+        }
+      }
+
+      if (photoTasks.length === 0) {
+        alert("다운로드할 사진이 없습니다.")
+        setClientZipLoading(false)
         return
       }
 
-      const blob = await res.blob()
-      const urlObj = URL.createObjectURL(blob)
+      setClientZipProgress({ current: 0, total: photoTasks.length })
+
+      // 사진 다운로드 (5개씩 병렬 처리)
+      const BATCH_SIZE = 5
+      let successCount = 0
+      const failures: string[] = []
+
+      for (let i = 0; i < photoTasks.length; i += BATCH_SIZE) {
+        const batch = photoTasks.slice(i, i + BATCH_SIZE)
+
+        const results = await Promise.allSettled(
+          batch.map(async (task) => {
+            const response = await fetch(task.url)
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const arrayBuffer = await response.arrayBuffer()
+            const urlParts = task.url.split(".")
+            const ext = urlParts[urlParts.length - 1].split("?")[0] || "jpg"
+            const fileName = `${task.vehicleNo}_${task.index}.${ext}`
+            return { fileName, buffer: arrayBuffer }
+          })
+        )
+
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j]
+          if (result.status === "fulfilled") {
+            zip.file(result.value.fileName, result.value.buffer)
+            successCount++
+          } else {
+            failures.push(batch[j].vehicleNo)
+          }
+        }
+
+        setClientZipProgress({ current: Math.min(i + BATCH_SIZE, photoTasks.length), total: photoTasks.length })
+      }
+
+      if (successCount === 0) {
+        alert("모든 사진 다운로드에 실패했습니다.")
+        setClientZipLoading(false)
+        return
+      }
+
+      // ZIP 생성 및 다운로드
+      const zipBlob = await zip.generateAsync({ type: "blob" })
+      const urlObj = URL.createObjectURL(zipBlob)
       const link = document.createElement("a")
       link.href = urlObj
-
       const today = new Date().toISOString().split("T")[0]
       link.download = `refund_photos_${today}.zip`
-
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(urlObj)
 
-      // Use toast for user feedback
       toast({
         title: "다운로드 완료",
-        description: "사진 ZIP 파일이 다운로드되었습니다.",
+        description: `${successCount}/${photoTasks.length}장의 사진이 다운로드되었습니다.${failures.length > 0 ? ` (${failures.length}건 실패)` : ""}`,
       })
     } catch (error) {
-      console.error("[v0] Failed to download photos ZIP:", error)
-      alert("사진 ZIP 다운로드 중 오류가 발생했습니다.")
+      console.error("Client-side photo download failed:", error)
+      alert("사진 다운로드 중 오류가 발생했습니다.")
     } finally {
-      setZipLoading(false)
+      setClientZipLoading(false)
+      setClientZipProgress({ current: 0, total: 0 })
     }
   }
 
@@ -912,16 +971,24 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
 엑셀 {hasActiveFilters ? "(필터 적용)" : "(전체)"}
   </Button>
             {user?.role === "COMMANDER" && (
-              <Button onClick={handleDownloadPhotosZip} disabled={zipLoading} variant="outline" size="sm" title={filterFrom && filterTo ? `${filterFrom} ~ ${filterTo} 기간의 사진을 다운로드합니다` : "날짜 범위를 먼저 지정해주세요"}>
-                {zipLoading ? (
+              <Button 
+                onClick={handleClientSidePhotosDownload} 
+                disabled={clientZipLoading || refunds.length === 0} 
+                variant="outline" 
+                size="sm" 
+                title={`현재 화면의 ${refunds.length}건 환불 사진을 다운로드합니다`}
+              >
+                {clientZipLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ZIP 생성 중...
+                    {clientZipProgress.total > 0 
+                      ? `${clientZipProgress.current}/${clientZipProgress.total}` 
+                      : "준비 중..."}
                   </>
                 ) : (
                   <>
                     <FileArchive className="mr-2 h-4 w-4" />
-                    사진 ZIP 다운로드
+                    사진 다운로드 ({refunds.length}건)
                   </>
                 )}
               </Button>
