@@ -625,7 +625,8 @@ export function RefundManagementTable({ apiEndpoint = "/api/refunds" }: { apiEnd
       setShowBulkDeleteDialog(false)
       setBulkDeleteFrom("")
       setBulkDeleteTo("")
-      mutate()
+      // 페이지 새로고침으로 데이터 갱신
+      window.location.reload()
     } catch (error) {
       console.error("Bulk delete failed:", error)
       alert("일괄 삭제 중 오류가 발생했습니다.")
